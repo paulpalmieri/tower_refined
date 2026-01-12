@@ -1,7 +1,7 @@
 -- chunk.lua
 -- Permanent limb chunks (multi-pixel) that fly then settle on the ground
 
-Chunk = Object:extend()
+local Chunk = Object:extend()
 
 -- Transform color to dead/settled chunk color
 local function transformToChunkColor(color)
@@ -87,3 +87,5 @@ function Chunk:draw()
             self.size)
     end
 end
+
+return Chunk

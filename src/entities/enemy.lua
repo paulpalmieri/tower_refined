@@ -1,7 +1,7 @@
--- blob.lua
+-- enemy.lua
 -- Top-down pixel devil enemy with animated legs
 
-Blob = Object:extend()
+local Enemy = Object:extend()
 
 -- Color palettes for each enemy type
 local DEVIL_COLORS_BASIC = {
@@ -330,7 +330,7 @@ local DEVIL_FRAMES = {
 -- Animation constants
 local ANIM_FRAME_DURATION = 0.1  -- ~10 FPS walk cycle
 
-function Blob:new(x, y, scale, enemyType)
+function Enemy:new(x, y, scale, enemyType)
     self.x = x
     self.y = y
     self.scale = scale or 1.0
@@ -381,20 +381,8 @@ function Blob:new(x, y, scale, enemyType)
     self.spawnTimer = SPAWN_LAND_DURATION
     self.isSpawning = true
 
-    -- Movement feel (wander, jitter, burst)
-    self.wanderOffset = lume.random() * math.pi * 2  -- Random phase for organic feel
-    self.jitterPhase = lume.random() * math.pi * 2   -- Random phase for jitter
-    self.burstTimer = 0
-    self.inBurst = false
-
     -- Pending limb pixels (for accumulating damage before spawning chunks)
     self.pendingLimbPixels = {}
-
-    -- Burn state (for fire power)
-    self.isBurning = false
-    self.burnTimer = 0           -- Time remaining on burn
-    self.burnTickTimer = 0       -- Time until next tick
-    self.burnStacks = 0          -- Damage multiplier
 
     -- Generate pixels for current frame
     self.pixels = {}
@@ -403,7 +391,7 @@ function Blob:new(x, y, scale, enemyType)
     self:generatePixels()
 end
 
-function Blob:generatePixels()
+function Enemy:generatePixels()
     local ps = BLOB_PIXEL_SIZE * self.scale
     local frameData = DEVIL_FRAMES[self.animFrame]
 
@@ -451,7 +439,7 @@ function Blob:generatePixels()
     end
 end
 
-function Blob:update(dt)
+function Enemy:update(dt)
     -- Spawn landing animation
     if self.isSpawning then
         self.spawnTimer = self.spawnTimer - dt
@@ -502,7 +490,7 @@ function Blob:update(dt)
     end
 end
 
-function Blob:moveToward(targetX, targetY)
+function Enemy:moveToward(targetX, targetY)
     local dx = targetX - self.x
     local dy = targetY - self.y
     local dist = math.sqrt(dx * dx + dy * dy)
@@ -514,13 +502,13 @@ function Blob:moveToward(targetX, targetY)
     end
 end
 
-function Blob:applyKnockback(angle, force)
+function Enemy:applyKnockback(angle, force)
     self.knockbackVx = math.cos(angle) * force
     self.knockbackVy = math.sin(angle) * force
     self.knockbackTimer = KNOCKBACK_DURATION
 end
 
-function Blob:draw()
+function Enemy:draw()
     local ps = BLOB_PIXEL_SIZE * self.scale
 
     -- Calculate spawn animation effects
@@ -561,14 +549,6 @@ function Blob:draw()
 
             if self.flashTimer > 0 then
                 drawColor = {1, 1, 1}
-            elseif self.isBurning then
-                -- Flickering orange/red overlay when burning
-                local flicker = math.sin(love.timer.getTime() * 15) * 0.5 + 0.5
-                drawColor = {
-                    lume.lerp(pixel.color[1], 1.0, 0.3 + flicker * 0.4),
-                    lume.lerp(pixel.color[2], 0.4, 0.3 + flicker * 0.3),
-                    lume.lerp(pixel.color[3], 0.1, 0.3 + flicker * 0.2),
-                }
             end
 
             love.graphics.setColor(drawColor[1], drawColor[2], drawColor[3], spawnAlpha)
@@ -583,7 +563,7 @@ function Blob:draw()
     love.graphics.pop()
 end
 
-function Blob:containsPoint(px, py)
+function Enemy:containsPoint(px, py)
     local ps = BLOB_PIXEL_SIZE * self.scale
     local bounds = 6 * ps
 
@@ -610,7 +590,7 @@ function Blob:containsPoint(px, py)
     return false
 end
 
-function Blob:getAliveCount()
+function Enemy:getAliveCount()
     local count = 0
     for _, bp in ipairs(self.basePixels) do
         if bp.alive then
@@ -621,7 +601,7 @@ function Blob:getAliveCount()
 end
 
 -- Get indices of pixels adjacent to the given pixel (8-way adjacency)
-function Blob:getAdjacentPixels(pixelIndex)
+function Enemy:getAdjacentPixels(pixelIndex)
     local target = self.basePixels[pixelIndex]
     if not target then return {} end
 
@@ -639,7 +619,7 @@ function Blob:getAdjacentPixels(pixelIndex)
 end
 
 -- Select an organic-shaped group of pixels using region growing
-function Blob:selectOrganicPixelGroup(seedIndex, targetCount)
+function Enemy:selectOrganicPixelGroup(seedIndex, targetCount)
     local selected = {}
     local selectedCount = 1
     local candidates = {}
@@ -699,7 +679,7 @@ function Blob:selectOrganicPixelGroup(seedIndex, targetCount)
 end
 
 -- Spawn a chunk from pending limb pixels
-function Blob:spawnLimbFromPending(bulletAngle)
+function Enemy:spawnLimbFromPending(bulletAngle)
     if #self.pendingLimbPixels < 1 then return end
 
     local ps = BLOB_PIXEL_SIZE * self.scale
@@ -742,13 +722,13 @@ function Blob:spawnLimbFromPending(bulletAngle)
 end
 
 -- Force spawn any pending pixels (called before death)
-function Blob:flushPendingLimb(bulletAngle)
+function Enemy:flushPendingLimb(bulletAngle)
     if #self.pendingLimbPixels > 0 then
         self:spawnLimbFromPending(bulletAngle)
     end
 end
 
-function Blob:takeDamage(hitX, hitY, amount, bulletAngle)
+function Enemy:takeDamage(hitX, hitY, amount, bulletAngle)
     self.flashTimer = BLOB_FLASH_DURATION
 
     -- Apply knockback in bullet direction
@@ -853,61 +833,12 @@ function Blob:takeDamage(hitX, hitY, amount, bulletAngle)
     return amount, false
 end
 
--- Apply or refresh burn effect (for fire power)
-function Blob:applyBurn()
-    if self.dead then return end
-
-    -- Refresh duration
-    self.burnTimer = BURN_DURATION
-    self.isBurning = true
-
-    -- Add stack (up to max)
-    if self.burnStacks < BURN_STACK_MAX then
-        self.burnStacks = self.burnStacks + 1
-    end
-end
-
--- Update burn state and apply tick damage
--- Returns: wasKilled (boolean), tickOccurred (boolean), tickDamage (number)
-function Blob:updateBurn(dt)
-    if not self.isBurning or self.dead then return false, false, 0 end
-
-    self.burnTimer = self.burnTimer - dt
-    self.burnTickTimer = self.burnTickTimer - dt
-
-    local killed = false
-    local tickOccurred = false
-    local tickDamage = 0
-
-    -- Apply tick damage
-    if self.burnTickTimer <= 0 then
-        self.burnTickTimer = BURN_TICK_RATE
-        tickOccurred = true
-        tickDamage = BURN_DAMAGE * self.burnStacks
-
-        local _, wasKilled = self:takeDamage(self.x, self.y, tickDamage, nil)
-        killed = wasKilled
-    end
-
-    -- Burn expired
-    if self.burnTimer <= 0 then
-        self.isBurning = false
-        self.burnStacks = 0
-        self.burnTickTimer = 0
-    end
-
-    return killed, tickOccurred, tickDamage
-end
-
-function Blob:die(bulletAngle)
+function Enemy:die(bulletAngle)
     self.dead = true
 
     local ps = BLOB_PIXEL_SIZE * self.scale
 
     triggerScreenShake(SCREEN_SHAKE_INTENSITY, SCREEN_SHAKE_DURATION)
-
-    -- Play death sound
-    Sounds.playDeath()
 
     local frameData = DEVIL_FRAMES[self.animFrame]
     local cosA = math.cos(self.angle)
@@ -1018,13 +949,15 @@ function Blob:die(bulletAngle)
     end
 end
 
-function Blob:getBounds()
+function Enemy:getBounds()
     local ps = BLOB_PIXEL_SIZE * self.scale
     local halfWidth = 5 * ps
     local halfHeight = 6 * ps
     return self.x - halfWidth, self.y - halfHeight, halfWidth * 2, halfHeight * 2
 end
 
-function Blob:distanceTo(x, y)
+function Enemy:distanceTo(x, y)
     return math.sqrt((self.x - x) ^ 2 + (self.y - y) ^ 2)
 end
+
+return Enemy

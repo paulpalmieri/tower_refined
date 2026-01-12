@@ -1,10 +1,8 @@
 -- sounds.lua
 -- Sound effects for Tower Idle Roguelite
+-- Note: SOUND_SHOOT_VOLUME is defined in src/config.lua
 
-Sounds = {}
-
--- Tuning constants
-SOUND_SHOOT_VOLUME = 0.5
+local Sounds = {}
 
 -- Source pool for overlapping playback
 local shootPool = {}
@@ -45,7 +43,7 @@ end
 
 function Sounds.init()
     -- Load gun sound from mp3 file
-    local gunSound = love.audio.newSource("gun_sound.mp3", "static")
+    local gunSound = love.audio.newSource("assets/gun_sound.mp3", "static")
     shootPool = createPoolFromSource(gunSound, POOL_SIZE)
 end
 
@@ -53,10 +51,4 @@ function Sounds.playShoot()
     playFromPool(shootPool, SOUND_SHOOT_VOLUME, 0.08)
 end
 
-function Sounds.playHit()
-    -- Removed
-end
-
-function Sounds.playDeath()
-    -- Removed - no death sound
-end
+return Sounds

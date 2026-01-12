@@ -1,7 +1,7 @@
 -- turret.lua
 -- Flak Cannon turret - heavy single barrel
 
-Turret = Object:extend()
+local Turret = Object:extend()
 
 -- ===================
 -- FLAK CANNON COLORS (Olive-Steel)
@@ -315,3 +315,5 @@ end
 function Turret:getHpPercent()
     return self.hp / self.maxHp
 end
+
+return Turret

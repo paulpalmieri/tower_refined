@@ -1,7 +1,7 @@
 -- particle.lua
 -- Blood spray particles that fly in bullet direction and fade
 
-Particle = Object:extend()
+local Particle = Object:extend()
 
 function Particle:new(params)
     self.x = params.x or 0
@@ -44,3 +44,5 @@ function Particle:draw()
         self.size,
         self.size)
 end
+
+return Particle

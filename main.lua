@@ -6,155 +6,22 @@
 -- ===================
 Object = require "lib.classic"
 lume = require "lib.lume"
-Debug = require "debugoverlay"
 
 -- ===================
--- TUNING CONSTANTS
+-- CONFIG (all tuning constants)
 -- ===================
-
--- Window
-WINDOW_WIDTH = 800
-WINDOW_HEIGHT = 600
-CENTER_X = WINDOW_WIDTH / 2
-CENTER_Y = WINDOW_HEIGHT / 2
-
--- Tower
-TOWER_HP = 100
-TOWER_FIRE_RATE = 0.3          -- Seconds between shots
-PROJECTILE_SPEED = 500
-PROJECTILE_DAMAGE = 1
-
--- Enemies
-BASIC_HP = 10
-BASIC_SPEED = 45
-FAST_HP = 5
-FAST_SPEED = 100
-TANK_HP = 25
-TANK_SPEED = 25
-
--- Visual Grounding
-SHADOW_OFFSET_X = 2              -- Light from upper-left
-SHADOW_OFFSET_Y = 3
-SHADOW_ALPHA = 0.3
-BOB_AMPLITUDE = 1.5              -- Pixels of vertical bob
-SPAWN_LAND_DURATION = 0.25       -- Landing animation time
-SPAWN_LAND_SCALE = 1.5           -- Start bigger, shrink to normal
-SPAWN_LAND_ALPHA = 0.3           -- Start transparent
-
--- Collision
-SEPARATION_FORCE = 80            -- Push force between enemies
-SEPARATION_RADIUS = 20           -- Distance for separation
-
--- Chaos
-SPEED_VARIATION = 0.15           -- +/- speed variance per enemy
-
--- Dust Particles
-DUST_SPAWN_CHANCE = 1.0          -- Chance to spawn dust on footstep
-DUST_FADE_TIME = 0.6             -- How long dust lingers
-DUST_SPEED = 40                  -- Dust drift speed
-DUST_COUNT = 3                   -- Particles per footstep
-DUST_SIZE_MIN = 2                -- Min particle size
-DUST_SIZE_MAX = 4                -- Max particle size
-
--- Knockback
-KNOCKBACK_FORCE = 120
-KNOCKBACK_DURATION = 0.12
-
--- Spawning (continuous)
-SPAWN_RATE = 1.5           -- Base enemies per second
-MAX_ENEMIES = 40           -- Cap on screen
-SPAWN_RATE_INCREASE = 0.08 -- Increase per second of game time
-
--- Blob appearance
-BLOB_PIXEL_SIZE = 3            -- Screen pixels per blob "cell"
-
--- Damage
-CLICK_DAMAGE = 15
-DAMAGE_PER_PIXEL = 5
-
--- Hit feedback
-BLOB_FLASH_DURATION = 0.05
-
--- Particle physics
-PIXEL_SCATTER_VELOCITY = 350      -- Fast initial launch for limbs
-DEATH_BURST_VELOCITY = 450        -- Even faster on death
-PIXEL_FADE_TIME = 0.4             -- Blood fades faster
-CHUNK_GRAVITY = 150               -- Unused (top-down)
-CHUNK_FRICTION = 12.0             -- High friction = fast settle
-
--- Screen shake
-SCREEN_SHAKE_INTENSITY = 5
-SCREEN_SHAKE_ON_HIT = 1.5
-SCREEN_SHAKE_DURATION = 0.12
-
--- Damage numbers
-DAMAGE_NUMBER_RISE_SPEED = 40
-DAMAGE_NUMBER_FADE_TIME = 0.6
-
--- Dead limb color settings (for settled chunks)
-CORPSE_DESATURATION = 0.7      -- 0=full color, 1=grayscale
-CORPSE_DARKENING = 0.4         -- 1=bright, 0=black
-CORPSE_BLUE_TINT = 0.1         -- Slight ghostly blue/purple shift
-
--- Limb chunk settings
-MIN_CHUNK_PIXELS = 9                 -- Minimum pixels per limb (~3x3 equivalent)
-CHUNK_SHAPE_IRREGULARITY = 0.35      -- 0=tight clusters, 1=very irregular
-CHUNK_NEIGHBOR_WEIGHT = 2.0          -- Priority for adjacent pixels (organic clumping)
-
--- Waves
-WAVE_BASE_ENEMIES = 5
-WAVE_ENEMY_INCREASE = 2
-SPAWN_DELAY = 0.8              -- Time between enemy spawns
-
--- Progression
-XP_PER_ENEMY = 10
-XP_TO_LEVEL_BASE = 50
-XP_LEVEL_SCALE = 1.5
-GOLD_PER_WAVE = 10
-
--- Collision
-ENEMY_CONTACT_DAMAGE = 10
-ENEMY_CONTACT_RADIUS = 30
-
--- Active skill (Nuke)
-NUKE_DAMAGE = 50
-NUKE_RADIUS = 150
-NUKE_COOLDOWN = 10.0
-
--- Fire/Burn effect
-BURN_DAMAGE = 2              -- Damage per tick
-BURN_TICK_RATE = 0.3         -- Seconds between ticks
-BURN_DURATION = 2.0          -- Total burn time
-BURN_STACK_MAX = 3           -- Maximum stacks (multiplies damage)
-
--- Game speed
-GAME_SPEEDS = {1, 3, 5}
-
--- Movement Feel
-MOVEMENT_JITTER_STRENGTH = 0.0    -- Position jitter (0 = disabled)
-MOVEMENT_JITTER_FREQUENCY = 3.0   -- Jitter cycles per second
-BOB_SQUASH_AMOUNT = 0.05          -- Vertical squash during bob
-
--- Chaos Behavior
-BURST_CHANCE = 0.05               -- Chance per second of speed burst
-BURST_SPEED_MULT = 1.5            -- Speed multiplier during burst
-BURST_DURATION = 0.3              -- Burst duration in seconds
-
--- Turret Visual (tunable from debug overlay)
-TURRET_SCALE = 1.5                -- Overall turret size
-GUN_KICK_AMOUNT = 4               -- Recoil distance in pixels
-GUN_KICK_DECAY = 25               -- Recoil recovery speed
+require "src.config"
 
 -- ===================
 -- GAME MODULES
 -- ===================
-require "particle"
-require "blob"
-require "turret"
-require "projectile"
-require "damagenumber"
-require "chunk"
-require "sounds"
+Particle = require "src.entities.particle"
+Enemy = require "src.entities.enemy"
+Turret = require "src.entities.turret"
+Projectile = require "src.entities.projectile"
+DamageNumber = require "src.entities.damagenumber"
+Chunk = require "src.entities.chunk"
+Sounds = require "src.audio"
 
 -- ===================
 -- SHOP UPGRADES
@@ -162,16 +29,6 @@ require "sounds"
 -- Upgrade tier definitions
 -- Each upgrade type has 5 tiers with increasing costs and effects
 local UPGRADE_DEFS = {
-    pierce = {
-        baseName = "Piercing Shots",
-        tiers = {
-            { cost = 50,  desc = "Pierce 1 enemy",   value = 1 },
-            { cost = 75,  desc = "Pierce 2 enemies", value = 2 },
-            { cost = 110, desc = "Pierce 3 enemies", value = 3 },
-            { cost = 160, desc = "Pierce 4 enemies", value = 4 },
-            { cost = 230, desc = "Pierce 5 enemies", value = 5 },
-        }
-    },
     fireRate = {
         baseName = "Rapid Fire",
         tiers = {
@@ -212,35 +69,23 @@ local UPGRADE_DEFS = {
             { cost = 185, desc = "-85% nuke cooldown", value = 0.15 },
         }
     },
-    multishot = {
-        baseName = "Multi-Shot",
-        tiers = {
-            { cost = 60,  desc = "Fire 2 projectiles", value = 2 },
-            { cost = 90,  desc = "Fire 3 projectiles", value = 3 },
-            { cost = 135, desc = "Fire 4 projectiles", value = 4 },
-            { cost = 200, desc = "Fire 5 projectiles", value = 5 },
-            { cost = 295, desc = "Fire 6 projectiles", value = 6 },
-        }
-    },
 }
 
 -- Track purchased tier for each upgrade type (0 = none purchased)
 local upgradeTiers = {
-    pierce = 0,
     fireRate = 0,
     damage = 0,
     hp = 0,
     nukeCooldown = 0,
-    multishot = 0,
 }
 
 -- ===================
 -- GAME STATE
 -- ===================
 local gameState = "playing"    -- "playing", "gameover", "shop"
-gameSpeedIndex = 1             -- Index into GAME_SPEEDS (global for debug overlay)
+gameSpeedIndex = 1             -- Index into GAME_SPEEDS
 
--- Entities (global for debug overlay stats)
+-- Entities
 tower = nil
 enemies = {}
 projectiles = {}
@@ -249,15 +94,12 @@ damageNumbers = {}
 chunks = {}
 dustParticles = {}  -- Footstep dust
 
--- Continuous spawning system (global for debug overlay)
+-- Continuous spawning system
 gameTime = 0
 local spawnAccumulator = 0
 currentSpawnRate = SPAWN_RATE
 
--- Progression (global for debug overlay)
-xp = 0
-level = 1
-xpToNextLevel = XP_TO_LEVEL_BASE
+-- Progression
 local gold = 0
 totalGold = 0  -- Persistent gold across runs
 totalKills = 0
@@ -267,33 +109,6 @@ local nukeCooldown = 0
 local nukeReady = true
 local nukeEffect = {active = false, timer = 0, radius = 0}
 
--- Powers (unlocked during run via leveling) - global for debug overlay
-powers = {
-    ricochet = false,
-    multishot = false,
-    pierce = false,
-    fire = false,
-}
-
--- Power definitions for level-up selection
-local POWER_DEFS = {
-    ricochet = {
-        name = "Ricochet",
-        desc = "Projectiles bounce to nearby enemies",
-        color = {0.4, 0.8, 1.0},  -- Cyan
-    },
-    multishot = {
-        name = "Multi-Shot",
-        desc = "Fire 2 projectiles at once",
-        color = {0.8, 0.4, 1.0},  -- Purple
-    },
-    fire = {
-        name = "Ignite",
-        desc = "Projectiles set enemies on fire (DOT)",
-        color = {1.0, 0.5, 0.2},  -- Orange
-    },
-}
-
 -- Passive stats (multipliers, modified by upgrades)
 local stats = {
     damage = 1.0,
@@ -302,23 +117,6 @@ local stats = {
     maxHp = 0,
     nukeCooldown = 1.0,
 }
-
--- ===================
--- DEBUG SYNC FUNCTION
--- ===================
--- Called by debug overlay when tuning constants change
-function syncTowerFromGlobals()
-    if tower then
-        tower.maxHp = TOWER_HP + stats.maxHp
-        -- Don't reduce current HP below 1, but allow increasing
-        if tower.hp > tower.maxHp then
-            tower.hp = tower.maxHp
-        end
-        tower.fireRate = TOWER_FIRE_RATE / stats.fireRate
-        tower.projectileSpeed = PROJECTILE_SPEED * stats.projectileSpeed
-        tower.damage = PROJECTILE_DAMAGE * stats.damage
-    end
-end
 
 -- Screen shake state
 local screenShake = {
@@ -331,10 +129,6 @@ local screenShake = {
 
 -- Shop selection
 local shopSelection = 1
-
--- Level-up power selection
-local levelUpChoices = {}      -- Array of power IDs to choose from
-local levelUpSelection = 1     -- Currently highlighted choice (1-3)
 
 -- ===================
 -- GROUND SYSTEM
@@ -566,8 +360,8 @@ end
 -- ===================
 -- DAMAGE NUMBERS
 -- ===================
-local function spawnDamageNumber(x, y, amount, isCrit, isBurn)
-    table.insert(damageNumbers, DamageNumber(x, y, amount, isCrit, isBurn))
+local function spawnDamageNumber(x, y, amount, isCrit)
+    table.insert(damageNumbers, DamageNumber(x, y, amount, isCrit))
 end
 
 local function updateDamageNumbers(dt)
@@ -637,7 +431,6 @@ function activateNuke()
 
                 if killed then
                     totalKills = totalKills + 1
-                    addXP(XP_PER_ENEMY)
                 end
             end
         end
@@ -725,7 +518,7 @@ local function spawnEnemy()
         enemyType = "fast"
     end
 
-    local enemy = Blob(x, y, 1.0, enemyType)
+    local enemy = Enemy(x, y, 1.0, enemyType)
     enemy:moveToward(CENTER_X, CENTER_Y)
 
     table.insert(enemies, enemy)
@@ -737,47 +530,8 @@ end
 local function fireProjectile()
     local proj = tower:fire()
     if proj then
-        -- Helper to apply powers to a projectile
-        local function applyPowers(p)
-            if powers.ricochet then
-                p.canRicochet = true
-                p.maxRicochets = 1
-            end
-            if powers.pierce then
-                p.canPierce = true
-                p.pierceCount = 0
-                p.maxPierces = powers.pierceCount or 1
-            end
-            if powers.fire then
-                p.canBurn = true
-            end
-            p.damage = p.damage * stats.damage
-        end
-
-        applyPowers(proj)
+        proj.damage = proj.damage * stats.damage
         table.insert(projectiles, proj)
-
-        -- Multishot: fire additional projectiles
-        if powers.multishot then
-            local shotCount = powers.multishotCount or 2
-            local totalSpread = 0.3  -- Total spread angle in radians
-            local spreadStep = totalSpread / shotCount
-
-            for i = 2, shotCount do
-                -- Spread shots evenly around the center
-                local offset = (i - 1) - (shotCount - 1) / 2
-                local spreadAngle = offset * spreadStep
-
-                local extraProj = Projectile(
-                    proj.x, proj.y,
-                    tower.angle + spreadAngle,
-                    tower.projectileSpeed,
-                    PROJECTILE_DAMAGE
-                )
-                applyPowers(extraProj)
-                table.insert(projectiles, extraProj)
-            end
-        end
     end
 end
 
@@ -799,74 +553,6 @@ local function findNearestEnemy(x, y, excludeEnemy)
 end
 
 -- ===================
--- XP AND LEVELING
--- ===================
-
--- Apply a random stat boost (used when all powers are unlocked)
-local function applyRandomStatBoost()
-    local boostType = lume.randomchoice({"damage", "fireRate", "projectileSpeed"})
-    if boostType == "damage" then
-        stats.damage = stats.damage + 0.1
-    elseif boostType == "fireRate" then
-        stats.fireRate = stats.fireRate + 0.1
-        tower.fireRate = TOWER_FIRE_RATE / stats.fireRate
-    else
-        stats.projectileSpeed = stats.projectileSpeed + 0.1
-        tower.projectileSpeed = PROJECTILE_SPEED * stats.projectileSpeed
-    end
-end
-
--- Select a power from the level-up screen
-local function selectPower(powerId)
-    powers[powerId] = true
-
-    -- Special setup for multishot
-    if powerId == "multishot" then
-        powers.multishotCount = 2
-    end
-
-    -- Resume gameplay
-    gameState = "playing"
-    levelUpChoices = {}
-end
-
-function addXP(amount)
-    xp = xp + amount
-
-    if xp >= xpToNextLevel then
-        xp = xp - xpToNextLevel
-        level = level + 1
-        xpToNextLevel = math.floor(XP_TO_LEVEL_BASE * (XP_LEVEL_SCALE ^ (level - 1)))
-
-        -- Level up effect
-        triggerScreenShake(3, 0.2)
-
-        -- Collect available powers (not yet unlocked)
-        local availablePowers = {}
-        for powerId, _ in pairs(POWER_DEFS) do
-            if not powers[powerId] then
-                table.insert(availablePowers, powerId)
-            end
-        end
-
-        -- If powers available, show selection screen
-        if #availablePowers > 0 then
-            -- Shuffle and pick up to 3
-            levelUpChoices = {}
-            local shuffled = lume.shuffle(lume.clone(availablePowers))
-            for i = 1, math.min(3, #shuffled) do
-                table.insert(levelUpChoices, shuffled[i])
-            end
-            levelUpSelection = 1
-            gameState = "levelup"
-        else
-            -- No powers left, give random stat boost
-            applyRandomStatBoost()
-        end
-    end
-end
-
--- ===================
 -- SHOP SYSTEM
 -- ===================
 
@@ -874,7 +560,7 @@ end
 local function getAvailableUpgrades()
     local available = {}
     -- Order for consistent display
-    local upgradeOrder = {"pierce", "multishot", "fireRate", "damage", "hp", "nukeCooldown"}
+    local upgradeOrder = {"fireRate", "damage", "hp", "nukeCooldown"}
 
     for _, upgradeId in ipairs(upgradeOrder) do
         local def = UPGRADE_DEFS[upgradeId]
@@ -915,14 +601,6 @@ local function applyPurchasedUpgrades()
         maxHp = 0,
         nukeCooldown = 1.0,
     }
-    powers = {
-        ricochet = false,
-        multishot = false,
-        pierce = false,
-        fire = false,
-        pierceCount = 0,
-        multishotCount = 1,
-    }
 
     -- Apply upgrades based on purchased tiers
     for upgradeId, tier in pairs(upgradeTiers) do
@@ -930,13 +608,7 @@ local function applyPurchasedUpgrades()
             local def = UPGRADE_DEFS[upgradeId]
             local tierData = def.tiers[tier]
 
-            if upgradeId == "pierce" then
-                powers.pierce = true
-                powers.pierceCount = tierData.value
-            elseif upgradeId == "multishot" then
-                powers.multishot = true
-                powers.multishotCount = tierData.value
-            elseif upgradeId == "fireRate" then
+            if upgradeId == "fireRate" then
                 stats.fireRate = stats.fireRate + tierData.value
             elseif upgradeId == "damage" then
                 stats.damage = stats.damage + tierData.value
@@ -1001,21 +673,6 @@ local function drawUI()
     end
     love.graphics.print("Speed: " .. currentSpeed .. "x [S]", 10, 50)
 
-    -- Level and XP
-    love.graphics.setColor(1, 1, 1, 0.9)
-    love.graphics.print("Level: " .. level, 10, 75)
-
-    -- XP bar
-    local xpBarWidth = 100
-    local xpBarHeight = 8
-    local xpPercent = xp / xpToNextLevel
-    love.graphics.setColor(0.2, 0.2, 0.25)
-    love.graphics.rectangle("fill", 10, 95, xpBarWidth, xpBarHeight)
-    love.graphics.setColor(0.4, 0.8, 0.4)
-    love.graphics.rectangle("fill", 10, 95, xpBarWidth * xpPercent, xpBarHeight)
-    love.graphics.setColor(1, 1, 1, 0.5)
-    love.graphics.rectangle("line", 10, 95, xpBarWidth, xpBarHeight)
-
     -- Tower HP bar
     love.graphics.setColor(1, 1, 1, 0.9)
     love.graphics.print("Tower HP", WINDOW_WIDTH - 110, 10)
@@ -1041,21 +698,6 @@ local function drawUI()
     love.graphics.setColor(1, 0.85, 0.2)
     love.graphics.print("Gold: " .. totalGold, WINDOW_WIDTH - 110, 50)
 
-    -- Active powers
-    love.graphics.setColor(1, 1, 1, 0.7)
-    local powerY = 115
-    if powers.ricochet then
-        love.graphics.print("[Ricochet]", 10, powerY)
-        powerY = powerY + 20
-    end
-    if powers.multishot then
-        love.graphics.print("[Multi-shot]", 10, powerY)
-        powerY = powerY + 20
-    end
-    if powers.pierce then
-        love.graphics.print("[Pierce]", 10, powerY)
-    end
-
     -- Nuke cooldown
     local nukeY = WINDOW_HEIGHT - 60
     love.graphics.setColor(0.3, 0.3, 0.35)
@@ -1075,10 +717,6 @@ local function drawUI()
     end
     love.graphics.setColor(1, 1, 1, 0.5)
     love.graphics.rectangle("line", 10, nukeY, 80, 30)
-
-    -- Debug
-    love.graphics.setColor(0.5, 0.5, 0.5, 0.5)
-    love.graphics.print("Particles: " .. #particles, 10, WINDOW_HEIGHT - 20)
 end
 
 local function drawGameOver()
@@ -1170,76 +808,6 @@ local function drawShop()
     love.graphics.print("UP/DOWN to select, ENTER to buy, R to start run", CENTER_X - 150, WINDOW_HEIGHT - 50)
 end
 
-local function drawLevelUpScreen()
-    -- Dark overlay
-    love.graphics.setColor(0, 0, 0, 0.85)
-    love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
-
-    -- Title
-    love.graphics.setColor(1, 0.85, 0.2)
-    local font = love.graphics.getFont()
-    local title = "LEVEL UP!"
-    love.graphics.print(title, CENTER_X - font:getWidth(title) / 2, 80)
-
-    love.graphics.setColor(1, 1, 1, 0.7)
-    local levelText = "Level " .. level
-    love.graphics.print(levelText, CENTER_X - font:getWidth(levelText) / 2, 110)
-
-    -- Power cards
-    local cardWidth = 180
-    local cardHeight = 140
-    local cardSpacing = 20
-    local numChoices = #levelUpChoices
-    local totalWidth = numChoices * cardWidth + (numChoices - 1) * cardSpacing
-    local startX = CENTER_X - totalWidth / 2
-    local cardY = CENTER_Y - cardHeight / 2
-
-    for i, powerId in ipairs(levelUpChoices) do
-        local def = POWER_DEFS[powerId]
-        local x = startX + (i - 1) * (cardWidth + cardSpacing)
-        local isSelected = (i == levelUpSelection)
-
-        -- Card background
-        if isSelected then
-            love.graphics.setColor(0.25, 0.3, 0.35)
-        else
-            love.graphics.setColor(0.12, 0.12, 0.15)
-        end
-        love.graphics.rectangle("fill", x, cardY, cardWidth, cardHeight)
-
-        -- Card border
-        if isSelected then
-            love.graphics.setColor(def.color[1], def.color[2], def.color[3])
-            love.graphics.setLineWidth(3)
-        else
-            love.graphics.setColor(0.4, 0.4, 0.45)
-            love.graphics.setLineWidth(1)
-        end
-        love.graphics.rectangle("line", x, cardY, cardWidth, cardHeight)
-
-        -- Icon (large letter in power color)
-        love.graphics.setColor(def.color[1], def.color[2], def.color[3])
-        local icon = string.sub(def.name, 1, 1)
-        love.graphics.print(icon, x + cardWidth / 2 - 5, cardY + 20)
-
-        -- Name
-        love.graphics.setColor(1, 1, 1)
-        local nameWidth = font:getWidth(def.name)
-        love.graphics.print(def.name, x + (cardWidth - nameWidth) / 2, cardY + 55)
-
-        -- Description (wrapped)
-        love.graphics.setColor(0.7, 0.7, 0.7)
-        love.graphics.printf(def.desc, x + 10, cardY + 85, cardWidth - 20, "center")
-    end
-
-    love.graphics.setLineWidth(1)
-
-    -- Instructions
-    love.graphics.setColor(0.6, 0.6, 0.6)
-    local instructions = "LEFT/RIGHT to select, ENTER to confirm"
-    love.graphics.print(instructions, CENTER_X - font:getWidth(instructions) / 2, WINDOW_HEIGHT - 60)
-end
-
 -- ===================
 -- GAME RESET
 -- ===================
@@ -1263,9 +831,6 @@ function startNewRun()
     damageNumbers = {}
     chunks = {}
     dustParticles = {}
-    xp = 0
-    level = 1
-    xpToNextLevel = XP_TO_LEVEL_BASE
     gold = 0
     totalKills = 0
     nukeCooldown = 0
@@ -1291,12 +856,6 @@ function love.load()
 end
 
 function love.update(dt)
-    -- Debug overlay pauses game
-    if Debug.active then
-        Debug:update(dt)
-        return
-    end
-
     if gameState == "gameover" or gameState == "shop" or gameState == "levelup" then
         return
     end
@@ -1347,19 +906,6 @@ function love.update(dt)
         enemy:moveToward(tower.x, tower.y)
         enemy:update(dt)
 
-        -- Process burn damage
-        if enemy.isBurning and not enemy.dead then
-            local burnKilled, tickOccurred, tickDamage = enemy:updateBurn(dt)
-            if tickOccurred then
-                -- Spawn burn damage number (orange)
-                spawnDamageNumber(enemy.x, enemy.y - 10, tickDamage, false, true)
-            end
-            if burnKilled then
-                totalKills = totalKills + 1
-                addXP(XP_PER_ENEMY)
-            end
-        end
-
         local dist = enemy:distanceTo(tower.x, tower.y)
         if dist < ENEMY_CONTACT_RADIUS then
             local destroyed = tower:takeDamage(ENEMY_CONTACT_DAMAGE)
@@ -1392,33 +938,12 @@ function love.update(dt)
                 local _, killed = enemy:takeDamage(proj.x, proj.y, proj.damage, proj.angle)
                 spawnDamageNumber(proj.x, proj.y - 10, math.floor(proj.damage))
 
-                -- Apply burn if projectile has fire power
-                if proj.canBurn and not enemy.dead then
-                    enemy:applyBurn()
-                end
-
                 if killed then
                     totalKills = totalKills + 1
-                    addXP(XP_PER_ENEMY)
                 end
 
-                -- Handle pierce
-                if proj.canPierce and proj.pierceCount < proj.maxPierces then
-                    proj.pierceCount = proj.pierceCount + 1
-                    -- Continue through enemy (don't mark dead)
-                elseif proj.canRicochet then
-                    -- Handle ricochet
-                    local nextTarget = findNearestEnemy(proj.x, proj.y, enemy)
-                    if nextTarget and proj.ricochetCount < proj.maxRicochets then
-                        proj:ricochetTo(nextTarget.x, nextTarget.y)
-                    else
-                        proj.dead = true
-                    end
-                else
-                    proj.dead = true
-                end
-
-                if proj.dead then break end
+                proj.dead = true
+                break
             end
         end
 
@@ -1436,30 +961,6 @@ end
 function love.draw()
     if gameState == "shop" then
         drawShop()
-        return
-    end
-
-    if gameState == "levelup" then
-        -- Draw game frozen behind
-        love.graphics.push()
-        love.graphics.translate(screenShake.offsetX, screenShake.offsetY)
-        drawArenaFloor()
-        drawChunks()
-        drawDustParticles()
-        for _, enemy in ipairs(enemies) do
-            enemy:draw()
-        end
-        tower:draw()
-        for _, proj in ipairs(projectiles) do
-            proj:draw()
-        end
-        drawNukeEffect()
-        drawParticles()
-        drawDamageNumbers()
-        love.graphics.pop()
-        drawUI()
-        -- Overlay
-        drawLevelUpScreen()
         return
     end
 
@@ -1501,49 +1002,12 @@ function love.draw()
     if gameState == "gameover" then
         drawGameOver()
     end
-
-    -- Debug overlay (drawn last, on top of everything)
-    if Debug.active then
-        Debug:draw()
-    end
-end
-
-function love.mousepressed(x, y, button)
-    if Debug.active then
-        Debug:mousepressed(x, y, button)
-        return
-    end
-end
-
-function love.mousereleased(x, y, button)
-    if Debug.active then
-        Debug:mousereleased(x, y, button)
-        return
-    end
-end
-
-function love.wheelmoved(x, y)
-    if Debug.active then
-        Debug:wheelmoved(x, y)
-        return
-    end
 end
 
 function love.keypressed(key)
-    -- D toggles debug overlay (works in ALL states)
-    if key == "d" then
-        Debug.active = not Debug.active
-        return
-    end
-
-    -- S cycles game speed (works in ALL states, even with debug open)
+    -- S cycles game speed
     if key == "s" and gameState == "playing" then
         gameSpeedIndex = (gameSpeedIndex % #GAME_SPEEDS) + 1
-        return
-    end
-
-    -- Block all other keys when debug overlay is open
-    if Debug.active then
         return
     end
 
@@ -1565,22 +1029,6 @@ function love.keypressed(key)
             startNewRun()
         elseif key == "escape" then
             gameState = "gameover"
-        end
-        return
-    end
-
-    -- Level-up selection state
-    if gameState == "levelup" then
-        if key == "left" then
-            levelUpSelection = levelUpSelection - 1
-            if levelUpSelection < 1 then levelUpSelection = #levelUpChoices end
-        elseif key == "right" then
-            levelUpSelection = levelUpSelection + 1
-            if levelUpSelection > #levelUpChoices then levelUpSelection = 1 end
-        elseif key == "return" or key == "space" then
-            if levelUpChoices[levelUpSelection] then
-                selectPower(levelUpChoices[levelUpSelection])
-            end
         end
         return
     end

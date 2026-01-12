@@ -26,13 +26,12 @@ globals = {
     "lume",
 
     -- Game classes (defined globally)
-    "Blob",
+    "Enemy",
     "Turret",
     "Projectile",
     "Particle",
     "DamageNumber",
     "Chunk",
-    "Debug",
     "Sounds",
 
     -- Global functions
@@ -40,10 +39,8 @@ globals = {
     "spawnChunk",
     "spawnDust",
     "triggerScreenShake",
-    "addXP",
-    "syncTowerFromGlobals",
 
-    -- Game state accessed by debug overlay
+    -- Game state
     "tower",
     "enemies",
     "projectiles",
@@ -53,12 +50,8 @@ globals = {
     "dustParticles",
     "gameTime",
     "currentSpawnRate",
-    "level",
-    "xp",
-    "xpToNextLevel",
     "totalGold",
     "totalKills",
-    "powers",
     "gameSpeedIndex",
     "startNewRun",
     "activateNuke",
@@ -92,10 +85,6 @@ globals = {
     "SPAWN_LAND_SCALE",
     "SPAWN_LAND_ALPHA",
 
-    -- Collision
-    "SEPARATION_FORCE",
-    "SEPARATION_RADIUS",
-
     -- Chaos
     "SPEED_VARIATION",
 
@@ -119,10 +108,6 @@ globals = {
     -- Blob appearance
     "BLOB_PIXEL_SIZE",
 
-    -- Damage
-    "CLICK_DAMAGE",
-    "DAMAGE_PER_PIXEL",
-
     -- Hit feedback
     "BLOB_FLASH_DURATION",
 
@@ -130,7 +115,6 @@ globals = {
     "PIXEL_SCATTER_VELOCITY",
     "DEATH_BURST_VELOCITY",
     "PIXEL_FADE_TIME",
-    "CHUNK_GRAVITY",
     "CHUNK_FRICTION",
 
     -- Screen shake
@@ -152,17 +136,6 @@ globals = {
     "CHUNK_SHAPE_IRREGULARITY",
     "CHUNK_NEIGHBOR_WEIGHT",
 
-    -- Waves
-    "WAVE_BASE_ENEMIES",
-    "WAVE_ENEMY_INCREASE",
-    "SPAWN_DELAY",
-
-    -- Progression
-    "XP_PER_ENEMY",
-    "XP_TO_LEVEL_BASE",
-    "XP_LEVEL_SCALE",
-    "GOLD_PER_WAVE",
-
     -- Collision
     "ENEMY_CONTACT_DAMAGE",
     "ENEMY_CONTACT_RADIUS",
@@ -172,24 +145,8 @@ globals = {
     "NUKE_RADIUS",
     "NUKE_COOLDOWN",
 
-    -- Fire/Burn effect
-    "BURN_DAMAGE",
-    "BURN_TICK_RATE",
-    "BURN_DURATION",
-    "BURN_STACK_MAX",
-
     -- Game speed
     "GAME_SPEEDS",
-
-    -- Movement feel
-    "MOVEMENT_JITTER_STRENGTH",
-    "MOVEMENT_JITTER_FREQUENCY",
-    "BOB_SQUASH_AMOUNT",
-
-    -- Chaos behavior
-    "BURST_CHANCE",
-    "BURST_SPEED_MULT",
-    "BURST_DURATION",
 
     -- Turret visual
     "TURRET_SCALE",

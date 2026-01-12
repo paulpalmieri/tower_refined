@@ -1,14 +1,13 @@
 -- damagenumber.lua
 -- Floating damage numbers
 
-DamageNumber = Object:extend()
+local DamageNumber = Object:extend()
 
-function DamageNumber:new(x, y, amount, isCrit, isBurn)
+function DamageNumber:new(x, y, amount, isCrit)
     self.x = x
     self.y = y
     self.amount = amount
     self.isCrit = isCrit or false
-    self.isBurn = isBurn or false
 
     -- Add random horizontal offset
     self.x = self.x + lume.random(-10, 10)
@@ -47,9 +46,7 @@ function DamageNumber:draw()
 
     local color = {1, 1, 1}  -- Default white
     if self.isCrit then
-        color = {1, 0.8, 0.2}    -- Yellow for crit
-    elseif self.isBurn then
-        color = {1, 0.5, 0.2}    -- Orange for burn
+        color = {1, 0.8, 0.2}    -- Yellow for crit/nuke
     end
 
     love.graphics.setColor(color[1], color[2], color[3], alpha)
@@ -66,3 +63,5 @@ function DamageNumber:draw()
     love.graphics.print(text, -textWidth / 2, -textHeight / 2)
     love.graphics.pop()
 end
+
+return DamageNumber

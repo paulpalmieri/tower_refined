@@ -1,7 +1,7 @@
 -- projectile.lua
 -- Fast projectiles with trails
 
-Projectile = Object:extend()
+local Projectile = Object:extend()
 
 -- Tracer bullet style
 local TRACER = {
@@ -31,12 +31,6 @@ function Projectile:new(x, y, angle, speed, damage)
 
     -- Size
     self.size = TRACER.size
-
-    -- For ricochet power
-    self.canRicochet = false
-    self.ricochetCount = 0
-    self.maxRicochets = 1
-    self.lastHitEnemy = nil
 end
 
 function Projectile:update(dt)
@@ -92,16 +86,4 @@ function Projectile:checkCollision(enemy)
     return dist < hitRadius
 end
 
-function Projectile:ricochetTo(targetX, targetY)
-    if not self.canRicochet then return false end
-    if self.ricochetCount >= self.maxRicochets then return false end
-
-    self.ricochetCount = self.ricochetCount + 1
-
-    -- New angle toward target
-    self.angle = math.atan2(targetY - self.y, targetX - self.x)
-    self.vx = math.cos(self.angle) * self.speed
-    self.vy = math.sin(self.angle) * self.speed
-
-    return true
-end
+return Projectile

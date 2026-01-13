@@ -22,6 +22,10 @@ Projectile = require "src.entities.projectile"
 DamageNumber = require "src.entities.damagenumber"
 Chunk = require "src.entities.chunk"
 Sounds = require "src.audio"
+Feedback = require "src.feedback"
+DebrisManager = require "src.debris_manager"
+Lighting = require "src.lighting"
+DebugConsole = require "src.debug_console"
 
 -- ===================
 -- SHOP UPGRADES
@@ -84,6 +88,9 @@ local upgradeTiers = {
 -- ===================
 local gameState = "playing"    -- "playing", "gameover", "shop"
 gameSpeedIndex = 1             -- Index into GAME_SPEEDS
+local debugMode = false        -- Toggle with F3
+local godMode = false          -- Toggle with G (tower invincibility)
+local autoFire = true          -- Toggle with A (auto-fire mode)
 
 -- Entities
 tower = nil
@@ -101,7 +108,7 @@ currentSpawnRate = SPAWN_RATE
 
 -- Progression
 local gold = 0
-totalGold = 0  -- Persistent gold across runs
+totalGold = 1000  -- Persistent gold across runs (set high for testing)
 totalKills = 0
 
 -- Active skill
@@ -116,15 +123,6 @@ local stats = {
     projectileSpeed = 1.0,
     maxHp = 0,
     nukeCooldown = 1.0,
-}
-
--- Screen shake state
-local screenShake = {
-    intensity = 0,
-    duration = 0,
-    timer = 0,
-    offsetX = 0,
-    offsetY = 0
 }
 
 -- Shop selection
@@ -380,31 +378,6 @@ local function drawDamageNumbers()
 end
 
 -- ===================
--- SCREEN SHAKE
--- ===================
-function triggerScreenShake(intensity, duration)
-    if intensity > screenShake.intensity or screenShake.timer <= 0 then
-        screenShake.intensity = intensity
-        screenShake.duration = duration
-        screenShake.timer = duration
-    end
-end
-
-local function updateScreenShake(dt)
-    if screenShake.timer > 0 then
-        screenShake.timer = screenShake.timer - dt
-        local t = screenShake.timer / screenShake.duration
-        local currentIntensity = screenShake.intensity * t
-        screenShake.offsetX = lume.random(-currentIntensity, currentIntensity)
-        screenShake.offsetY = lume.random(-currentIntensity, currentIntensity)
-    else
-        screenShake.offsetX = 0
-        screenShake.offsetY = 0
-        screenShake.intensity = 0
-    end
-end
-
--- ===================
 -- ACTIVE SKILL: NUKE
 -- ===================
 function activateNuke()
@@ -418,8 +391,8 @@ function activateNuke()
     nukeEffect.timer = 0.3
     nukeEffect.radius = 0
 
-    -- Big screen shake
-    triggerScreenShake(SCREEN_SHAKE_INTENSITY * 2, 0.3)
+    -- Big screen shake + hit-stop via Feedback system
+    Feedback:trigger("nuke_explosion", {x = tower.x, y = tower.y})
 
     -- Damage all enemies in radius
     for _, enemy in ipairs(enemies) do
@@ -427,10 +400,14 @@ function activateNuke()
             local dist = enemy:distanceTo(tower.x, tower.y)
             if dist < NUKE_RADIUS then
                 local _, killed = enemy:takeDamage(tower.x, tower.y, NUKE_DAMAGE)
-                spawnDamageNumber(enemy.x, enemy.y - 20, NUKE_DAMAGE, true)
+                spawnDamageNumber(enemy.x, enemy.y - 20, NUKE_DAMAGE, "crit")
 
                 if killed then
                     totalKills = totalKills + 1
+                    -- Award gold on kill
+                    gold = gold + GOLD_PER_KILL
+                    totalGold = totalGold + GOLD_PER_KILL
+                    spawnDamageNumber(enemy.x, enemy.y - 30, GOLD_PER_KILL, "gold")
                 end
             end
         end
@@ -498,23 +475,20 @@ end
 -- SPAWN SYSTEM (Continuous)
 -- ===================
 local function spawnEnemy()
-    -- Spawn from edge of screen (circular arena)
+    -- Spawn from outside the visible area
     local angle = lume.random(0, math.pi * 2)
-    local distance = 380
+    local distance = SPAWN_DISTANCE
     local x = CENTER_X + math.cos(angle) * distance
     local y = CENTER_Y + math.sin(angle) * distance
 
-    -- Determine enemy type based on game time
+    -- Determine enemy type - all types available from start
     local enemyType = "basic"
     local roll = lume.random()
 
-    -- More variety as time goes on
-    local tankChance = math.min(0.2, gameTime * 0.003)
-    local fastChance = math.min(0.4, 0.1 + gameTime * 0.005)
-
-    if roll < tankChance then
+    -- Fixed spawn weights: 50% basic, 30% fast, 20% tank
+    if roll < 0.2 then
         enemyType = "tank"
-    elseif roll < fastChance then
+    elseif roll < 0.5 then
         enemyType = "fast"
     end
 
@@ -531,7 +505,14 @@ local function fireProjectile()
     local proj = tower:fire()
     if proj then
         proj.damage = proj.damage * stats.damage
+        -- Register light for this projectile
+        proj.lightId = Lighting:addProjectileLight(proj)
         table.insert(projectiles, proj)
+
+        -- Add muzzle flash at barrel tip (offset 10px forward from projectile spawn)
+        local flashX = proj.x + math.cos(tower.angle) * 10
+        local flashY = proj.y + math.sin(tower.angle) * 10
+        Lighting:addMuzzleFlash(flashX, flashY, tower.angle)
     end
 end
 
@@ -653,6 +634,34 @@ local function drawArenaFloor()
 end
 
 -- ===================
+-- SCOPE CURSOR (Manual Aiming Mode)
+-- ===================
+local function drawScopeCursor()
+    if autoFire or gameState ~= "playing" then return end
+
+    local mx, my = love.mouse.getPosition()
+
+    love.graphics.setColor(SCOPE_COLOR[1], SCOPE_COLOR[2], SCOPE_COLOR[3], SCOPE_COLOR[4])
+    love.graphics.setLineWidth(2)
+
+    -- Center dot
+    love.graphics.circle("fill", mx, my, SCOPE_INNER_RADIUS)
+
+    -- Outer ring
+    love.graphics.circle("line", mx, my, SCOPE_OUTER_RADIUS)
+
+    -- Crosshair lines (with gap)
+    local gap = SCOPE_GAP + SCOPE_OUTER_RADIUS
+    local len = SCOPE_LINE_LENGTH
+    love.graphics.line(mx - gap - len, my, mx - gap, my)  -- Left
+    love.graphics.line(mx + gap, my, mx + gap + len, my)  -- Right
+    love.graphics.line(mx, my - gap - len, mx, my - gap)  -- Up
+    love.graphics.line(mx, my + gap, mx, my + gap + len)  -- Down
+
+    love.graphics.setLineWidth(1)
+end
+
+-- ===================
 -- UI DRAWING
 -- ===================
 local function drawUI()
@@ -672,6 +681,22 @@ local function drawUI()
         love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
     end
     love.graphics.print("Speed: " .. currentSpeed .. "x [S]", 10, 50)
+
+    -- God mode indicator
+    if godMode then
+        love.graphics.setColor(0.2, 1, 0.4, 0.9)
+        love.graphics.print("GOD MODE [G]", 10, 70)
+    end
+
+    -- Auto-fire mode indicator
+    local autoFireY = godMode and 90 or 70
+    if autoFire then
+        love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
+        love.graphics.print("Auto-Fire: ON [A]", 10, autoFireY)
+    else
+        love.graphics.setColor(1, 0.4, 0.4, 0.9)
+        love.graphics.print("Manual Aim [A]", 10, autoFireY)
+    end
 
     -- Tower HP bar
     love.graphics.setColor(1, 1, 1, 0.9)
@@ -693,6 +718,14 @@ local function drawUI()
     love.graphics.rectangle("fill", WINDOW_WIDTH - 110, 30, hpBarWidth * hpPercent, hpBarHeight)
     love.graphics.setColor(1, 1, 1, 0.5)
     love.graphics.rectangle("line", WINDOW_WIDTH - 110, 30, hpBarWidth, hpBarHeight)
+
+    -- HP text inside bar
+    local hpText = math.floor(tower.hp) .. "/" .. math.floor(tower.maxHp)
+    local font = love.graphics.getFont()
+    local textWidth = font:getWidth(hpText)
+    local textHeight = font:getHeight()
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.print(hpText, WINDOW_WIDTH - 110 + (hpBarWidth - textWidth) / 2, 30 + (hpBarHeight - textHeight) / 2)
 
     -- Gold (current run)
     love.graphics.setColor(1, 0.85, 0.2)
@@ -841,6 +874,14 @@ function startNewRun()
     gameTime = 0
     spawnAccumulator = 0
     currentSpawnRate = SPAWN_RATE
+
+    -- Reset feedback, debris, and lighting state
+    Feedback:reset()
+    DebrisManager:reset()
+    Lighting:reset()
+
+    -- Register tower glow
+    Lighting:addTowerGlow(tower)
 end
 
 -- ===================
@@ -851,11 +892,17 @@ function love.load()
     love.window.setTitle("Tower Idle Roguelite")
 
     Sounds.init()
+    DebrisManager:init()
+    Lighting:init()
+    DebugConsole:init()
     initGround()
     startNewRun()
 end
 
 function love.update(dt)
+    -- Update debug console (always, even when paused)
+    DebugConsole:update(dt)
+
     if gameState == "gameover" or gameState == "shop" or gameState == "levelup" then
         return
     end
@@ -863,57 +910,61 @@ function love.update(dt)
     -- Apply game speed
     dt = dt * GAME_SPEEDS[gameSpeedIndex]
 
-    -- Update screen shake
-    updateScreenShake(dt)
+    -- Update Feedback system (returns 0 during hit-stop to freeze gameplay)
+    local gameDt = Feedback:update(dt)
 
-    -- Update nuke
+    -- Update nuke visual effect (uses raw dt to not freeze during hit-stop)
     updateNuke(dt)
 
-    -- Continuous spawning
-    gameTime = gameTime + dt
+    -- Continuous spawning (uses gameDt to freeze during hit-stop)
+    gameTime = gameTime + gameDt
     currentSpawnRate = SPAWN_RATE + (gameTime * SPAWN_RATE_INCREASE)
 
-    spawnAccumulator = spawnAccumulator + dt * currentSpawnRate
+    spawnAccumulator = spawnAccumulator + gameDt * currentSpawnRate
     while spawnAccumulator >= 1 and #enemies < MAX_ENEMIES do
         spawnAccumulator = spawnAccumulator - 1
         spawnEnemy()
     end
 
-    -- Gold over time (every 10 seconds)
-    if math.floor(gameTime) % 10 == 0 and math.floor(gameTime) ~= math.floor(gameTime - dt) then
-        local timeGold = 5 + math.floor(gameTime / 30)
-        gold = gold + timeGold
-        totalGold = totalGold + timeGold
+    -- Find target for tower (only used in auto-fire mode)
+    local target = nil
+    if autoFire then
+        target = findNearestEnemy(tower.x, tower.y, nil)
     end
 
-    -- Find target for tower
-    local target, _ = findNearestEnemy(tower.x, tower.y, nil)
-
-    -- Update tower
-    if target then
-        tower:update(dt, target.x, target.y)
+    -- Update tower (uses gameDt for gameplay freeze)
+    if autoFire and target then
+        -- Auto-fire mode: aim at nearest enemy and auto-fire
+        tower:update(gameDt, target.x, target.y)
         if tower:canFire() then
             fireProjectile()
         end
     else
+        -- Manual mode OR no enemies: aim at mouse cursor
         local mx, my = love.mouse.getPosition()
-        tower:update(dt, mx, my)
+        tower:update(gameDt, mx, my)
     end
 
-    -- Update enemies
+    -- Update enemies (uses gameDt for gameplay freeze)
     for i = #enemies, 1, -1 do
         local enemy = enemies[i]
         enemy:moveToward(tower.x, tower.y)
-        enemy:update(dt)
+        enemy:update(gameDt)
 
-        local dist = enemy:distanceTo(tower.x, tower.y)
-        if dist < ENEMY_CONTACT_RADIUS then
-            local destroyed = tower:takeDamage(ENEMY_CONTACT_DAMAGE)
-            enemy:die(tower.x, tower.y)
-
-            if destroyed then
-                gameState = "gameover"
+        -- Square collision with tower pad - trigger when touching boundary
+        local padHalfSize = TOWER_PAD_SIZE * BLOB_PIXEL_SIZE * TURRET_SCALE
+        local dx = math.abs(enemy.x - tower.x)
+        local dy = math.abs(enemy.y - tower.y)
+        -- Since enemies are clamped to the boundary, check if they're at/near the edge
+        -- They must be within padHalfSize + small tolerance on both axes
+        if dx <= padHalfSize + 5 and dy <= padHalfSize + 5 then
+            if not godMode then
+                local destroyed = tower:takeDamage(ENEMY_CONTACT_DAMAGE)
+                if destroyed then
+                    gameState = "gameover"
+                end
             end
+            enemy:die(tower.x, tower.y)
         end
 
         if enemy.dead then
@@ -921,10 +972,10 @@ function love.update(dt)
         end
     end
 
-    -- Update projectiles
+    -- Update projectiles (uses gameDt for gameplay freeze)
     for i = #projectiles, 1, -1 do
         local proj = projectiles[i]
-        proj:update(dt)
+        proj:update(gameDt)
 
         -- Track hit enemies to prevent double-hits
         proj.hitEnemies = proj.hitEnemies or {}
@@ -940,6 +991,10 @@ function love.update(dt)
 
                 if killed then
                     totalKills = totalKills + 1
+                    -- Award gold on kill
+                    gold = gold + GOLD_PER_KILL
+                    totalGold = totalGold + GOLD_PER_KILL
+                    spawnDamageNumber(enemy.x, enemy.y - 20, GOLD_PER_KILL, "gold")
                 end
 
                 proj.dead = true
@@ -948,14 +1003,20 @@ function love.update(dt)
         end
 
         if proj.dead then
+            -- Remove associated light
+            if proj.lightId then
+                Lighting:removeLight(proj.lightId)
+            end
             table.remove(projectiles, i)
         end
     end
 
+    -- Visual effects use raw dt (keep animating during hit-stop)
     updateParticles(dt)
     updateDamageNumbers(dt)
     updateChunks(dt)
     updateDustParticles(dt)
+    Lighting:update(dt)
 end
 
 function love.draw()
@@ -964,8 +1025,10 @@ function love.draw()
         return
     end
 
+    -- Apply screen shake from Feedback system
+    local shakeX, shakeY = Feedback:getShakeOffset()
     love.graphics.push()
-    love.graphics.translate(screenShake.offsetX, screenShake.offsetY)
+    love.graphics.translate(shakeX, shakeY)
 
     -- 1. Ground (pixelated grass environment)
     drawArenaFloor()
@@ -973,38 +1036,119 @@ function love.draw()
     -- 2. Limb chunks (under live enemies)
     drawChunks()
 
-    -- 2.5 Dust particles (footsteps)
+    -- 3. Dust particles (footsteps)
     drawDustParticles()
 
-    -- 3. Enemies
+    -- 4. Enemy shadows (drawn before enemies, fade with fog)
+    local maxDist = math.sqrt(WINDOW_WIDTH * WINDOW_WIDTH / 4 + WINDOW_HEIGHT * WINDOW_HEIGHT / 4)
+    local visibleDist = maxDist * VIGNETTE_START
+    for _, enemy in ipairs(enemies) do
+        local distFromCenter = math.sqrt((enemy.x - CENTER_X)^2 + (enemy.y - CENTER_Y)^2)
+        if distFromCenter < visibleDist + 50 then  -- Only draw shadows for visible enemies
+            Lighting:drawEntityShadow(enemy)
+        end
+    end
+
+    -- 5. Enemies
     for _, enemy in ipairs(enemies) do
         enemy:draw()
     end
 
-    -- 4. Tower
+    -- 6. Tower shadow + Tower
+    Lighting:drawEntityShadow(tower, 40, 25)
     tower:draw()
 
-    -- 5. Projectiles
+    -- 7. Projectiles
     for _, proj in ipairs(projectiles) do
         proj:draw()
     end
 
-    -- 6. Effects
+    -- 8. Lighting pass (additive lights)
+    Lighting:drawLights()
+
+    -- 9. Effects
     drawNukeEffect()
     drawParticles()
     drawDamageNumbers()
 
+    -- 10. Vignette (edge darkening)
+    Lighting:drawVignette()
+
     love.graphics.pop()
 
-    -- UI
+    -- Scope cursor (drawn in screen space, unaffected by shake)
+    drawScopeCursor()
+
+    -- UI (unaffected by lighting)
     drawUI()
 
     if gameState == "gameover" then
         drawGameOver()
     end
+
+    -- Debug overlay (toggle with F3)
+    if debugMode then
+        -- Count settled chunks for debug display
+        local settledCount = 0
+        for _, chunk in ipairs(chunks) do
+            if chunk:isFullySettled() then
+                settledCount = settledCount + 1
+            end
+        end
+        Feedback:drawDebug(DebrisManager:getStats(), #chunks, settledCount)
+        Lighting:drawDebug()
+    end
+
+    -- Debug console (toggle with `)
+    DebugConsole:draw()
 end
 
 function love.keypressed(key)
+    -- Debug console toggle (backtick)
+    if key == "`" then
+        DebugConsole:toggle()
+        return
+    end
+
+    -- Handle console input when visible (consume all keys)
+    if DebugConsole:isVisible() then
+        if key == "escape" then
+            DebugConsole:close()
+        elseif key == "return" then
+            DebugConsole:executeInput()
+        elseif key == "backspace" then
+            DebugConsole:backspace()
+        elseif key == "tab" then
+            DebugConsole:autocomplete()
+        end
+        return -- Consume all keys when console visible
+    end
+
+    -- Debug mode toggle (F3)
+    if key == "f3" then
+        debugMode = not debugMode
+        Feedback:setDebugMode(debugMode)
+        Lighting:setDebugMode(debugMode)
+        return
+    end
+
+    -- Debug: Force dismember nearest enemy (D key, only in debug mode)
+    if key == "d" and debugMode and gameState == "playing" then
+        local nearest = nil
+        local nearestDist = math.huge
+        for _, enemy in ipairs(enemies) do
+            local dist = enemy:distanceTo(CENTER_X, CENTER_Y)
+            if dist < nearestDist then
+                nearest = enemy
+                nearestDist = dist
+            end
+        end
+        if nearest then
+            nearest:forceDismember()
+        end
+        return
+    end
+
     -- S cycles game speed
     if key == "s" and gameState == "playing" then
         gameSpeedIndex = (gameSpeedIndex % #GAME_SPEEDS) + 1
@@ -1051,5 +1195,41 @@ function love.keypressed(key)
         activateNuke()
     elseif key == "r" then
         startNewRun()
+    elseif key == "g" then
+        godMode = not godMode
+    elseif key == "a" then
+        autoFire = not autoFire
+        love.mouse.setVisible(autoFire)
+    end
+end
+
+function love.textinput(text)
+    -- Filter out backtick (used to toggle console)
+    if text == "`" then return end
+
+    if DebugConsole:isVisible() then
+        DebugConsole:appendText(text)
+    end
+end
+
+function love.mousepressed(x, y, button)
+    -- Debug console mouse handling (consume clicks when visible)
+    if DebugConsole:mousepressed(x, y, button) then
+        return
+    end
+
+    -- Manual fire mode: left click to fire
+    if button == 1 and not autoFire and gameState == "playing" then
+        fireProjectile()
+    end
+end
+
+function love.mousereleased(x, y, button)
+    DebugConsole:mousereleased(x, y, button)
+end
+
+function love.wheelmoved(x, y)
+    if DebugConsole:wheelmoved(x, y) then
+        return
     end
 end

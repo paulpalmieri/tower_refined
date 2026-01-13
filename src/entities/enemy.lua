@@ -2,65 +2,15 @@
 -- Top-down pixel devil enemy with animated legs
 
 local Enemy = Object:extend()
+local MonsterSpec = require "src.monster_spec"
 
--- Color palettes for each enemy type
-local DEVIL_COLORS_BASIC = {
-    horn = {0.55, 0.15, 0.15},
-    hornLight = {0.7, 0.25, 0.2},
-    body = {0.85, 0.28, 0.32},
-    bodyLight = {0.95, 0.4, 0.42},
-    bodyDark = {0.65, 0.18, 0.22},
-    bodyInner = {0.75, 0.22, 0.26},
-    core = {0.4, 0.08, 0.12},
-    eyeWhite = {1.0, 0.95, 0.7},
-    eyePupil = {0.15, 0.08, 0.08},
-    leg = {0.6, 0.2, 0.22},
-    legDark = {0.45, 0.15, 0.18},
-    tail = {0.7, 0.2, 0.22},
-    tailTip = {0.5, 0.12, 0.15},
-}
+-- Get color palettes from MonsterSpec
+local DEVIL_COLORS_BASIC = MonsterSpec.palettes.basic
+local DEVIL_COLORS_FAST = MonsterSpec.palettes.fast
+local DEVIL_COLORS_TANK = MonsterSpec.palettes.tank
 
-local DEVIL_COLORS_FAST = {
-    horn = {0.15, 0.45, 0.15},
-    hornLight = {0.2, 0.6, 0.25},
-    body = {0.28, 0.75, 0.32},
-    bodyLight = {0.4, 0.88, 0.45},
-    bodyDark = {0.18, 0.55, 0.22},
-    bodyInner = {0.22, 0.65, 0.26},
-    core = {0.08, 0.35, 0.12},
-    eyeWhite = {1.0, 0.95, 0.7},
-    eyePupil = {0.08, 0.15, 0.08},
-    leg = {0.2, 0.5, 0.22},
-    legDark = {0.15, 0.38, 0.18},
-    tail = {0.2, 0.6, 0.22},
-    tailTip = {0.12, 0.42, 0.15},
-}
-
-local DEVIL_COLORS_TANK = {
-    horn = {0.15, 0.15, 0.55},
-    hornLight = {0.2, 0.25, 0.7},
-    body = {0.28, 0.32, 0.85},
-    bodyLight = {0.4, 0.45, 0.95},
-    bodyDark = {0.18, 0.22, 0.65},
-    bodyInner = {0.22, 0.26, 0.75},
-    core = {0.08, 0.12, 0.4},
-    eyeWhite = {1.0, 0.95, 0.7},
-    eyePupil = {0.08, 0.08, 0.15},
-    leg = {0.2, 0.22, 0.6},
-    legDark = {0.15, 0.18, 0.45},
-    tail = {0.2, 0.22, 0.7},
-    tailTip = {0.12, 0.15, 0.5},
-}
-
--- Layer destruction order (first = destroyed first)
-local LAYER_ORDER = {
-    horn = 1,
-    leg = 2,
-    outer = 3,
-    inner = 4,
-    eye = 5,
-    core = 6,
-}
+-- Get layer order from MonsterSpec
+local LAYER_ORDER = MonsterSpec.LAYER_ORDER
 
 -- Animation frames for walking (4 frames)
 -- Top-down view: horns point up (forward), tail points down (back)
@@ -328,7 +278,7 @@ local DEVIL_FRAMES = {
 }
 
 -- Animation constants
-local ANIM_FRAME_DURATION = 0.1  -- ~10 FPS walk cycle
+local ANIM_FRAME_DURATION = 0.017  -- ~10 FPS walk cycle (slower, more deliberate)
 
 function Enemy:new(x, y, scale, enemyType)
     self.x = x
@@ -356,19 +306,16 @@ function Enemy:new(x, y, scale, enemyType)
     -- HP system and color palette based on enemy type
     self.maxHp = BASIC_HP
     self.colors = DEVIL_COLORS_BASIC
-    self.animSpeed = 1.0
     if enemyType == "fast" then
         self.speed = FAST_SPEED
         self.scale = 0.7
         self.maxHp = FAST_HP
         self.colors = DEVIL_COLORS_FAST
-        self.animSpeed = 1.5  -- Faster leg scurry
     elseif enemyType == "tank" then
         self.speed = TANK_SPEED
         self.scale = 1.4
         self.maxHp = TANK_HP
         self.colors = DEVIL_COLORS_TANK
-        self.animSpeed = 0.7  -- Slower lumber
     end
     self.hp = self.maxHp
 
@@ -376,19 +323,68 @@ function Enemy:new(x, y, scale, enemyType)
     local speedMult = 1.0 + lume.random(-SPEED_VARIATION, SPEED_VARIATION)
     self.speed = self.speed * speedMult
 
+    -- Animation speed scales with movement speed so legs match travel
+    self.animSpeed = self.speed * ANIM_SPEED_SCALE
+
     -- Visual grounding state
     self.bobOffset = 0
+    self.swayOffset = 0
     self.spawnTimer = SPAWN_LAND_DURATION
     self.isSpawning = true
 
     -- Pending limb pixels (for accumulating damage before spawning chunks)
     self.pendingLimbPixels = {}
 
+    -- Health threshold tracking for dismemberment
+    self.lastHpPercent = 1.0          -- Previous HP percentage
+    self.brokenParts = {}             -- Track which thresholds have triggered
+
     -- Generate pixels for current frame
     self.pixels = {}
     self.basePixels = {}  -- Store original pixel definitions
     self.totalPixelCount = 0
     self:generatePixels()
+
+    -- Register eye lights with Lighting system
+    self.eyeLightIds = {}
+    self:registerEyeLights()
+
+    -- Register body glow with Lighting system (uses body color)
+    self.bodyGlowId = nil
+    self:registerBodyGlow()
+end
+
+-- Register eye lights with the Lighting system
+function Enemy:registerEyeLights()
+    for _, bp in ipairs(self.basePixels) do
+        if bp.layer == "eye" then
+            local lightId = Lighting:addEyeGlow(self, 0, 0)
+            table.insert(self.eyeLightIds, lightId)
+        end
+    end
+end
+
+-- Remove eye lights from the Lighting system
+function Enemy:removeEyeLights()
+    for _, lightId in ipairs(self.eyeLightIds) do
+        Lighting:removeLight(lightId)
+    end
+    self.eyeLightIds = {}
+end
+
+-- Register body glow with the Lighting system
+function Enemy:registerBodyGlow()
+    -- Use the body color from the enemy's palette for the glow
+    local glowColor = self.colors.body
+    self.bodyGlowId = Lighting:addEnemyBodyGlow(self, glowColor)
+end
+
+-- Remove body glow from the Lighting system
+function Enemy:removeBodyGlow()
+    if self.bodyGlowId then
+        Lighting:removeLight(self.bodyGlowId)
+        self.bodyGlowId = nil
+    end
 end
 
 function Enemy:generatePixels()
@@ -481,12 +477,40 @@ function Enemy:update(dt)
         end
 
         -- Simple sine bob (critter feel)
+        -- bobPhase goes 0→4 over one full walk cycle (4 frames)
         local bobPhase = (self.animTimer / ANIM_FRAME_DURATION) + (self.animFrame - 1)
+
+        -- Bob happens twice per cycle (up on each push frame)
         self.bobOffset = math.sin(bobPhase * math.pi) * BOB_AMPLITUDE
 
+        -- Sway happens once per cycle (body shifts opposite to pushing legs)
+        -- Use half frequency so one full left-right-left cycle per 4 frames
+        self.swayOffset = math.sin(bobPhase * math.pi * 0.5) * SWAY_AMPLITUDE
+
         -- Direct movement at constant speed
-        self.x = self.x + self.vx * self.speed * dt
-        self.y = self.y + self.vy * self.speed * dt
+        local newX = self.x + self.vx * self.speed * dt
+        local newY = self.y + self.vy * self.speed * dt
+
+        -- Clamp to tower pad boundary (don't enter the pad)
+        local padHalfSize = TOWER_PAD_SIZE * BLOB_PIXEL_SIZE * TURRET_SCALE
+        local towerX, towerY = CENTER_X, CENTER_Y
+
+        -- Check if new position would be inside pad
+        local dxNew = newX - towerX
+        local dyNew = newY - towerY
+        if math.abs(dxNew) < padHalfSize and math.abs(dyNew) < padHalfSize then
+            -- Clamp to nearest edge
+            if math.abs(dxNew) > math.abs(dyNew) then
+                -- Closer to left/right edge
+                newX = towerX + (dxNew > 0 and padHalfSize or -padHalfSize)
+            else
+                -- Closer to top/bottom edge
+                newY = towerY + (dyNew > 0 and padHalfSize or -padHalfSize)
+            end
+        end
+
+        self.x = newX
+        self.y = newY
     end
 end
 
@@ -511,52 +535,132 @@ end
 function Enemy:draw()
     local ps = BLOB_PIXEL_SIZE * self.scale
 
-    -- Calculate spawn animation effects
-    local spawnScale = 1.0
-    local spawnAlpha = 1.0
-    if self.isSpawning then
-        local spawnProgress = 1 - (self.spawnTimer / SPAWN_LAND_DURATION)
-        -- Ease out: starts big, shrinks to normal
-        spawnScale = SPAWN_LAND_SCALE - (SPAWN_LAND_SCALE - 1) * spawnProgress * spawnProgress
-        -- Alpha: fades in
-        spawnAlpha = SPAWN_LAND_ALPHA + (1 - SPAWN_LAND_ALPHA) * spawnProgress
+    -- Calculate distance from center for fog visibility
+    local distFromCenter = math.sqrt((self.x - CENTER_X)^2 + (self.y - CENTER_Y)^2)
+
+    -- Fog visibility based on vignette area
+    local maxDist = math.sqrt(WINDOW_WIDTH * WINDOW_WIDTH / 4 + WINDOW_HEIGHT * WINDOW_HEIGHT / 4)
+    local visibleDist = maxDist * VIGNETTE_START
+    local fogDist = maxDist * 0.85
+
+    local bodyAlpha = 1.0
+    if distFromCenter > visibleDist then
+        bodyAlpha = 1.0 - math.min(1.0, (distFromCenter - visibleDist) / (fogDist - visibleDist))
     end
 
-    local finalScale = spawnScale
+    -- Fog glow factor (1 = fully in fog, 0 = fully visible)
+    local fogGlow = 1.0 - bodyAlpha
 
-    -- Draw shadow first (before body, at ground level)
-    -- Shadow scales/fades based on height (negative bobOffset = higher)
-    local heightFactor = 1.0 + self.bobOffset / 10  -- Higher = smaller shadow
-    heightFactor = math.max(0.5, math.min(1.0, heightFactor))  -- Clamp
-    local shadowWidth = 5 * ps * 0.85 * heightFactor
-    local shadowHeight = 3 * ps * 0.85 * heightFactor
-    local shadowAlpha = SHADOW_ALPHA * spawnAlpha * heightFactor
-    love.graphics.setColor(0, 0, 0, shadowAlpha)
-    love.graphics.ellipse("fill",
-        self.x + SHADOW_OFFSET_X,
-        self.y + SHADOW_OFFSET_Y,
-        shadowWidth, shadowHeight)
-
-    -- Draw body with bobbing offset and spawn effects
+    -- Draw body with bobbing offset
+    -- Sway is applied perpendicular to facing direction (local X after rotation)
     love.graphics.push()
     love.graphics.translate(self.x, self.y + self.bobOffset)
     love.graphics.rotate(self.angle)
-    love.graphics.scale(finalScale, finalScale)
+    love.graphics.translate(self.swayOffset, 0)  -- Local X = perpendicular to facing
 
+    -- Draw edge glow when in fog (outline effect)
+    if fogGlow > 0.1 then
+        local glowColor = EYE_LIGHT_COLOR
+        local glowAlpha = fogGlow * 0.3
+        local glowOffset = ps * 0.4
+
+        -- Draw glow behind each pixel (offset in multiple directions for outline effect)
+        for _, pixel in ipairs(self.pixels) do
+            if pixel.alive then
+                love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowAlpha)
+                -- Draw slightly larger rectangles offset in each direction
+                for _, dir in ipairs({{1,0}, {-1,0}, {0,1}, {0,-1}}) do
+                    love.graphics.rectangle("fill",
+                        pixel.ox - ps / 2 + dir[1] * glowOffset,
+                        pixel.oy - ps / 2 + dir[2] * glowOffset,
+                        ps, ps)
+                end
+            end
+        end
+    end
+
+    -- Draw all body pixels (non-eyes) with tight directional shading
     for _, pixel in ipairs(self.pixels) do
-        if pixel.alive then
+        if pixel.alive and pixel.layer ~= "eye" then
+            local drawColor
+
+            if self.flashTimer > 0 then
+                drawColor = {1, 1, 1}
+            else
+                -- Tight directional shading: light from above-left
+                -- normY: -1 at top (horns), +1 at bottom (tail)
+                -- normX: -1 at left, +1 at right
+                local normY = pixel.oy / (ps * 5)
+                local normX = pixel.ox / (ps * 4)
+
+                -- Base shading: darker at bottom, brighter at top
+                local shade = -normY * ENEMY_SHADE_CONTRAST
+
+                -- Add slight X-axis shading (light from left)
+                shade = shade - normX * (ENEMY_SHADE_CONTRAST * 0.3)
+
+                -- Top highlight boost
+                if normY < -0.3 then
+                    shade = shade + ENEMY_SHADE_HIGHLIGHT * (1 + normY / 0.3)
+                end
+
+                -- Edge darkening for outer pixels (more defined silhouette)
+                if pixel.layer == "outer" then
+                    shade = shade - 0.08
+                end
+
+                -- Apply shading
+                local lightFactor = 1.0 + shade
+                lightFactor = lume.clamp(lightFactor, 0.5, 1.3)
+
+                drawColor = {
+                    lume.clamp(pixel.color[1] * lightFactor, 0, 1),
+                    lume.clamp(pixel.color[2] * lightFactor, 0, 1),
+                    lume.clamp(pixel.color[3] * lightFactor, 0, 1)
+                }
+            end
+
+            love.graphics.setColor(drawColor[1], drawColor[2], drawColor[3], bodyAlpha)
+            love.graphics.rectangle("fill",
+                pixel.ox - ps / 2,
+                pixel.oy - ps / 2,
+                ps, ps)
+        end
+    end
+
+    -- Draw eyes (brighter, with glow when in fog)
+    for _, pixel in ipairs(self.pixels) do
+        if pixel.alive and pixel.layer == "eye" then
+            -- Eye glow halo when in fog
+            if fogGlow > 0.2 then
+                local glowAlpha = fogGlow * 0.5
+                love.graphics.setColor(EYE_LIGHT_COLOR[1], EYE_LIGHT_COLOR[2], EYE_LIGHT_COLOR[3], glowAlpha)
+                love.graphics.rectangle("fill",
+                    pixel.ox - ps,
+                    pixel.oy - ps,
+                    ps * 2, ps * 2)
+            end
+
+            -- Eye pixel (stays visible even in fog)
+            local eyeAlpha = math.max(bodyAlpha, 0.6 + fogGlow * 0.4)
             local drawColor = pixel.color
 
             if self.flashTimer > 0 then
                 drawColor = {1, 1, 1}
+            elseif fogGlow > 0.1 then
+                -- Brighten eyes in fog
+                drawColor = {
+                    math.min(1, pixel.color[1] + fogGlow * 0.3),
+                    math.min(1, pixel.color[2] + fogGlow * 0.1),
+                    math.min(1, pixel.color[3] + fogGlow * 0.1),
+                }
             end
 
-            love.graphics.setColor(drawColor[1], drawColor[2], drawColor[3], spawnAlpha)
+            love.graphics.setColor(drawColor[1], drawColor[2], drawColor[3], eyeAlpha)
             love.graphics.rectangle("fill",
                 pixel.ox - ps / 2,
                 pixel.oy - ps / 2,
-                ps,
-                ps)
+                ps, ps)
         end
     end
 
@@ -706,7 +810,7 @@ function Enemy:spawnLimbFromPending(bulletAngle)
 
     -- Spawn chunk flying in bullet direction
     local angle = baseAngle + lume.random(-0.3, 0.3)
-    local speed = lume.random(PIXEL_SCATTER_VELOCITY * 0.8, PIXEL_SCATTER_VELOCITY * 1.2)
+    local speed = lume.random(PROJECTILE_SPEED * LIMB_VELOCITY_RATIO * 0.8, PROJECTILE_SPEED * LIMB_VELOCITY_RATIO * 1.2)
 
     spawnChunk({
         x = centerX,
@@ -728,6 +832,101 @@ function Enemy:flushPendingLimb(bulletAngle)
     end
 end
 
+-- Eject pixels belonging to layers associated with a health threshold
+-- Called when HP crosses a threshold (e.g., 75%, 50%, 25%)
+function Enemy:ejectLimbAtThreshold(threshold, bulletAngle)
+    local layers = MonsterSpec.getLayersForThreshold(threshold)
+    if not layers or #layers == 0 then return end
+
+    local ps = BLOB_PIXEL_SIZE * self.scale
+    local frameData = DEVIL_FRAMES[self.animFrame]
+    local cosA = math.cos(self.angle)
+    local sinA = math.sin(self.angle)
+
+    -- Collect pixels belonging to the threshold's layers
+    local limbPixels = {}
+    local centerX, centerY = 0, 0
+    local pixelCount = 0
+
+    for i, bp in ipairs(self.basePixels) do
+        if bp.alive and frameData[i] then
+            -- Check if this pixel's layer matches any in the threshold
+            for _, layer in ipairs(layers) do
+                if bp.layer == layer then
+                    bp.alive = false  -- Mark as destroyed
+
+                    local ox = frameData[i][1] * ps
+                    local oy = frameData[i][2] * ps
+                    local worldX = self.x + ox * cosA - oy * sinA
+                    local worldY = self.y + ox * sinA + oy * cosA
+
+                    table.insert(limbPixels, {
+                        worldX = worldX,
+                        worldY = worldY,
+                        color = {bp.color[1], bp.color[2], bp.color[3]}
+                    })
+                    centerX = centerX + worldX
+                    centerY = centerY + worldY
+                    pixelCount = pixelCount + 1
+                    break
+                end
+            end
+        end
+    end
+
+    -- Spawn the limb chunk if we have enough pixels
+    if pixelCount > 0 then
+        centerX = centerX / pixelCount
+        centerY = centerY / pixelCount
+
+        -- Convert to offsets from center
+        local pixels = {}
+        for _, lp in ipairs(limbPixels) do
+            table.insert(pixels, {
+                ox = lp.worldX - centerX,
+                oy = lp.worldY - centerY,
+                color = lp.color
+            })
+        end
+
+        -- Use DebrisManager if available
+        if DebrisManager and DebrisManager.spawnLimb then
+            DebrisManager:spawnLimb(centerX, centerY, bulletAngle, pixels, PROJECTILE_SPEED * LIMB_VELOCITY_RATIO)
+        else
+            -- Fallback: spawn directly
+            local angle = bulletAngle + lume.random(-0.3, 0.3)
+            local speed = lume.random(PROJECTILE_SPEED * LIMB_VELOCITY_RATIO * 0.8, PROJECTILE_SPEED * LIMB_VELOCITY_RATIO * 1.2)
+            spawnChunk({
+                x = centerX,
+                y = centerY,
+                vx = math.cos(angle) * speed,
+                vy = math.sin(angle) * speed,
+                pixels = pixels,
+                size = ps
+            })
+        end
+
+        -- Regenerate pixels after limb ejection
+        self:generatePixels()
+    end
+end
+
+-- Force dismemberment for debugging - ejects limb at next threshold
+function Enemy:forceDismember()
+    -- Find the next threshold that hasn't been triggered
+    for _, threshold in ipairs(DISMEMBER_THRESHOLDS) do
+        if not self.brokenParts[threshold] then
+            self.brokenParts[threshold] = true
+            -- Use a random angle for the ejection
+            local randomAngle = lume.random(0, math.pi * 2)
+            self:ejectLimbAtThreshold(threshold, randomAngle)
+            Feedback:trigger("limb_break")
+            return true
+        end
+    end
+    return false  -- All thresholds already triggered
+end
+
 function Enemy:takeDamage(hitX, hitY, amount, bulletAngle)
     self.flashTimer = BLOB_FLASH_DURATION
 
@@ -736,10 +935,24 @@ function Enemy:takeDamage(hitX, hitY, amount, bulletAngle)
         self:applyKnockback(bulletAngle, KNOCKBACK_FORCE)
     end
 
-    triggerScreenShake(SCREEN_SHAKE_ON_HIT, SCREEN_SHAKE_DURATION * 0.5)
+    -- Track HP percentage before damage
+    local oldHpPercent = self.lastHpPercent
 
     -- Reduce HP
     self.hp = self.hp - amount
+    local newHpPercent = math.max(0, self.hp / self.maxHp)
+    self.lastHpPercent = newHpPercent
+
+    -- Build damage context for feedback
+    local damageContext = {
+        damage_dealt = amount,
+        current_hp = self.hp,
+        max_hp = self.maxHp,
+        impact_angle = bulletAngle or 0,
+        impact_x = hitX,
+        impact_y = hitY,
+        enemy = self
+    }
 
     -- Death check BEFORE pixel destruction
     if self.hp <= 0 then
@@ -749,8 +962,20 @@ function Enemy:takeDamage(hitX, hitY, amount, bulletAngle)
         return amount, true
     end
 
+    -- Check for health threshold crossings (limb breaks)
+    local thresholdCrossed = Feedback:checkThresholdCrossed(oldHpPercent, newHpPercent)
+    if thresholdCrossed and not self.brokenParts[thresholdCrossed] then
+        self.brokenParts[thresholdCrossed] = true
+        self:ejectLimbAtThreshold(thresholdCrossed, bulletAngle or 0)
+        Feedback:trigger("limb_break", damageContext)
+    else
+        -- Use damage-aware preset selection
+        local preset = Feedback:getPresetForDamage(damageContext)
+        Feedback:trigger(preset, damageContext)
+    end
+
     -- Calculate how many pixels should remain based on HP percentage
-    local hpPercent = math.max(0, self.hp / self.maxHp)
+    local hpPercent = newHpPercent
     local targetPixels = math.ceil(self.totalPixelCount * hpPercent)
     local currentPixels = self:getAliveCount()
     local pixelsToDestroy = currentPixels - targetPixels
@@ -760,20 +985,25 @@ function Enemy:takeDamage(hitX, hitY, amount, bulletAngle)
     local cosA = math.cos(self.angle)
     local sinA = math.sin(self.angle)
 
-    -- Spawn blood spray particles (fast, tight spread)
+    -- Spawn blood spray via DebrisManager if available, else fallback
     local baseAngle = bulletAngle or 0
-    for i = 1, 6 do
-        local angle = baseAngle + lume.random(-0.25, 0.25)
-        local speed = lume.random(300, 450)
-        spawnParticle({
-            x = hitX,
-            y = hitY,
-            vx = math.cos(angle) * speed,
-            vy = math.sin(angle) * speed,
-            color = {0.6, 0.08, 0.08},  -- dark red blood
-            size = lume.random(1, 3),
-            lifetime = lume.random(0.15, 0.3)
-        })
+    if DebrisManager and DebrisManager.spawnImpactEffects then
+        DebrisManager:spawnImpactEffects(damageContext)
+    else
+        -- Fallback: spawn blood spray particles directly
+        for _ = 1, 6 do
+            local angle = baseAngle + lume.random(-0.25, 0.25)
+            local speed = lume.random(300, 450)
+            spawnParticle({
+                x = hitX,
+                y = hitY,
+                vx = math.cos(angle) * speed,
+                vy = math.sin(angle) * speed,
+                color = {0.6, 0.08, 0.08},
+                size = lume.random(1, 3),
+                lifetime = lume.random(0.15, 0.3)
+            })
+        end
     end
 
     -- Only destroy if we need to remove pixels
@@ -836,9 +1066,25 @@ end
 function Enemy:die(bulletAngle)
     self.dead = true
 
+    -- Remove lights from Lighting system
+    self:removeEyeLights()
+    self:removeBodyGlow()
+
     local ps = BLOB_PIXEL_SIZE * self.scale
 
-    triggerScreenShake(SCREEN_SHAKE_INTENSITY, SCREEN_SHAKE_DURATION)
+    -- Build context for total collapse feedback
+    local deathContext = {
+        damage_dealt = self.maxHp,  -- Assume lethal damage
+        current_hp = 0,
+        max_hp = self.maxHp,
+        impact_angle = bulletAngle,
+        impact_x = self.x,
+        impact_y = self.y,
+        enemy = self
+    }
+
+    -- Screen shake + hit-stop via Feedback system (total_collapse for death)
+    Feedback:trigger("total_collapse", deathContext)
 
     local frameData = DEVIL_FRAMES[self.animFrame]
     local cosA = math.cos(self.angle)
@@ -933,7 +1179,7 @@ function Enemy:die(bulletAngle)
 
                     -- Spawn limb with spread in bullet direction
                     local angle = bulletAngle + lume.random(-0.8, 0.8)
-                    local speed = lume.random(DEATH_BURST_VELOCITY * 0.6, DEATH_BURST_VELOCITY * 1.0)
+                    local speed = lume.random(PROJECTILE_SPEED * DEATH_BURST_RATIO * 0.6, PROJECTILE_SPEED * DEATH_BURST_RATIO * 1.0)
 
                     spawnChunk({
                         x = centerX,

@@ -51,9 +51,7 @@ function Projectile:update(dt)
 end
 
 function Projectile:draw()
-    -- Draw outer glow
-    love.graphics.setColor(TRACER.glowColor[1], TRACER.glowColor[2], TRACER.glowColor[3], TRACER.glowColor[4])
-    love.graphics.circle("fill", self.x, self.y, self.size * 2.5)
+    -- Outer glow handled by Lighting system
 
     -- Draw trail (fading)
     for i, pos in ipairs(self.trail) do

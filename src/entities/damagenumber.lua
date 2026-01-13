@@ -3,11 +3,11 @@
 
 local DamageNumber = Object:extend()
 
-function DamageNumber:new(x, y, amount, isCrit)
+function DamageNumber:new(x, y, amount, textType)
     self.x = x
     self.y = y
     self.amount = amount
-    self.isCrit = isCrit or false
+    self.textType = textType or "damage"  -- "damage", "crit", or "gold"
 
     -- Add random horizontal offset
     self.x = self.x + lume.random(-10, 10)
@@ -44,15 +44,19 @@ function DamageNumber:draw()
     local alpha = 1 - (self.age / self.lifetime)
     alpha = alpha * alpha  -- Ease out
 
-    local color = {1, 1, 1}  -- Default white
-    if self.isCrit then
+    local color = {1, 1, 1}  -- Default white for damage
+    local text = tostring(self.amount)
+
+    if self.textType == "crit" then
         color = {1, 0.8, 0.2}    -- Yellow for crit/nuke
+    elseif self.textType == "gold" then
+        color = {1, 0.85, 0.2}   -- Gold color
+        text = "+" .. self.amount
     end
 
     love.graphics.setColor(color[1], color[2], color[3], alpha)
 
     -- Draw with scale
-    local text = tostring(self.amount)
     local font = love.graphics.getFont()
     local textWidth = font:getWidth(text)
     local textHeight = font:getHeight()

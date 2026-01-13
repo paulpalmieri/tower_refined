@@ -52,12 +52,34 @@ function Chunk:new(params)
     end
 
     self.settled = false
-    self.dead = false  -- Never true - chunks are permanent
+    self.fullySettled = false  -- Only true after delay (for color fade)
+    self.settleTimer = 0       -- Time since velocity dropped
+    self.trailTimer = 0        -- Timer for blood trail spawning
+    self.dead = false          -- Never true - chunks are permanent
 end
 
 function Chunk:update(dt)
+    -- Handle settle delay for color fade
+    if self.settled and not self.fullySettled then
+        self.settleTimer = self.settleTimer + dt
+        if self.settleTimer >= CHUNK_SETTLE_DELAY then
+            self.fullySettled = true
+        end
+        return  -- Don't move or spawn trails once stopped
+    end
+
     if self.settled then
         return
+    end
+
+    -- Spawn blood trail while moving
+    self.trailTimer = self.trailTimer + dt
+    if self.trailTimer >= BLOOD_TRAIL_INTERVAL then
+        self.trailTimer = 0
+        -- Spawn trail particle via DebrisManager if available
+        if DebrisManager and DebrisManager.spawnBloodTrail then
+            DebrisManager:spawnBloodTrail(self.x, self.y)
+        end
     end
 
     -- No gravity for top-down game
@@ -71,14 +93,16 @@ function Chunk:update(dt)
 
     -- Check if settled (velocity low enough)
     local speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
-    if speed < 40 then
+    if speed < CHUNK_SETTLE_VELOCITY then
         self.settled = true
+        self.settleTimer = 0  -- Start delay timer
     end
 end
 
 function Chunk:draw()
     for _, p in ipairs(self.pixels) do
-        local color = self.settled and p.deadColor or p.color
+        -- Only use dead color after fully settled (delay passed)
+        local color = self.fullySettled and p.deadColor or p.color
         love.graphics.setColor(color[1], color[2], color[3])
         love.graphics.rectangle("fill",
             self.x + p.ox - self.size / 2,
@@ -86,6 +110,12 @@ function Chunk:draw()
             self.size,
             self.size)
     end
+end
+
+--- Check if this chunk is fully settled (for debug stats)
+--- @return boolean
+function Chunk:isFullySettled()
+    return self.fullySettled
 end
 
 return Chunk

@@ -52,6 +52,9 @@ function DamageNumber:draw()
     elseif self.textType == "gold" then
         color = {1, 0.85, 0.2}   -- Gold color
         text = "+" .. self.amount
+    elseif self.textType == "polygon" then
+        color = POLYGON_COLOR    -- Purple
+        text = "+P" .. self.amount
     end
 
     love.graphics.setColor(color[1], color[2], color[3], alpha)

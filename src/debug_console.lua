@@ -16,10 +16,13 @@ local inputBuffer = ""
 local errorMessage = ""
 local errorTimer = 0
 
--- Slider interaction
-local draggingVar = nil
-local dragStartX = 0
-local dragStartValue = 0
+-- Button/input interaction
+local hoveredElement = nil    -- {varName=string, type="minus"|"reset"|"plus"|"input"}
+local activeButton = nil      -- Same format, tracks pressed button
+local focusedInput = nil      -- Variable name of focused text input
+local inputEditBuffer = ""    -- Text being edited in focused input
+local inputCursorPos = 0      -- Cursor position
+local inputCursorBlink = 0    -- For blinking cursor animation
 
 -- Autocomplete state
 local autocompleteMatches = {}
@@ -39,10 +42,12 @@ local ERROR_DISPLAY_TIME = 2.0
 -- Layout
 local ROW_HEIGHT = 22
 local PADDING = 12
-local NAME_WIDTH = 220
-local VALUE_WIDTH = 100
-local SLIDER_WIDTH = 250
-local SLIDER_HEIGHT = 14
+local NAME_WIDTH = 200
+local VALUE_WIDTH = 80
+local BUTTON_WIDTH = 32
+local BUTTON_HEIGHT = 18
+local BUTTON_SPACING = 4
+local INPUT_FIELD_WIDTH = 80
 local INPUT_HEIGHT = 28
 local HEADER_HEIGHT = 24
 
@@ -122,8 +127,11 @@ local function detectType(value)
             if isColor then return "color" end
         end
         return "array"
+    elseif type(value) == "number" then
+        return "number"
+    else
+        return "string"
     end
-    return "number"
 end
 
 local function getCategoryColor(categoryName)
@@ -136,6 +144,8 @@ local function calculateBounds(value, varType)
         return 0, 1
     elseif varType == "array" then
         return 0, 100 -- Generic bounds for arrays
+    elseif varType == "string" then
+        return 0, 0 -- Strings don't have numeric bounds
     else
         -- Number
         if value == 0 then
@@ -197,6 +207,7 @@ local function parseConfigFile()
                         varType = varType,
                         flashTimer = 0,
                         cachedValue = deepCopy(globalVal),
+                        defaultValue = deepCopy(globalVal),
                         readOnly = READ_ONLY[varName] or false,
                         min = minVal,
                         max = maxVal,
@@ -222,6 +233,7 @@ local function parseConfigFile()
                     varType = varType,
                     flashTimer = 0,
                     cachedValue = deepCopy(globalVal),
+                    defaultValue = deepCopy(globalVal),
                     readOnly = READ_ONLY[varName] or false,
                     min = minVal,
                     max = maxVal,
@@ -273,61 +285,20 @@ local function formatValue(var)
         end
         return "{" .. table.concat(parts, ", ") .. "}"
     else
-        if val == math.floor(val) then
-            return tostring(val)
+        if type(val) == "number" then
+            if val == math.floor(val) then
+                return tostring(val)
+            else
+                return string.format("%.3f", val)
+            end
         else
-            return string.format("%.3f", val)
+            return tostring(val)
         end
     end
 end
 
 -- ===================
--- SLIDER LOGIC
--- ===================
-
-local function getSliderRect(index)
-    local y = HEADER_HEIGHT + PADDING + (index - 1) * ROW_HEIGHT - scrollOffset
-    local x = PADDING + NAME_WIDTH + VALUE_WIDTH + 10
-    return x, y + (ROW_HEIGHT - SLIDER_HEIGHT) / 2, SLIDER_WIDTH, SLIDER_HEIGHT
-end
-
-local function getSliderValue(var)
-    local val = _G[var.name]
-    if var.varType == "number" then
-        return val
-    elseif var.varType == "color" then
-        -- Return average brightness for slider
-        return (val[1] + val[2] + val[3]) / 3
-    end
-    return 0
-end
-
-local function setSliderValue(var, newVal)
-    if var.readOnly then return end
-
-    if var.varType == "number" then
-        -- Snap to integers if original was integer
-        if var.cachedValue == math.floor(var.cachedValue) and math.abs(newVal) > 1 then
-            newVal = math.floor(newVal + 0.5)
-        end
-        _G[var.name] = newVal
-    elseif var.varType == "color" then
-        -- Scale all RGB components proportionally
-        local oldAvg = (var.cachedValue[1] + var.cachedValue[2] + var.cachedValue[3]) / 3
-        if oldAvg > 0.01 then
-            local scale = newVal / oldAvg
-            _G[var.name] = {
-                math.max(0, math.min(1, var.cachedValue[1] * scale)),
-                math.max(0, math.min(1, var.cachedValue[2] * scale)),
-                math.max(0, math.min(1, var.cachedValue[3] * scale)),
-            }
-        end
-    end
-    var.flashTimer = FLASH_DURATION
-end
-
--- ===================
--- COMMAND PARSING
+-- VALUE PARSING
 -- ===================
 
 local function parseValue(str, varType)
@@ -355,6 +326,153 @@ local function parseValue(str, varType)
     return false, nil
 end
 
+-- ===================
+-- BUTTON/INPUT LOGIC
+-- ===================
+
+-- Get button/input positions for a row
+local function getControlPositions(rowIndex)
+    local y = HEADER_HEIGHT + PADDING + (rowIndex - 1) * ROW_HEIGHT - scrollOffset
+    local baseX = PADDING + NAME_WIDTH + VALUE_WIDTH + 10
+    return {
+        minus = {x = baseX, y = y + 2, w = BUTTON_WIDTH, h = BUTTON_HEIGHT},
+        reset = {x = baseX + BUTTON_WIDTH + BUTTON_SPACING, y = y + 2, w = BUTTON_WIDTH + 8, h = BUTTON_HEIGHT},
+        plus = {x = baseX + BUTTON_WIDTH * 2 + BUTTON_SPACING * 2 + 8, y = y + 2, w = BUTTON_WIDTH, h = BUTTON_HEIGHT},
+        input = {x = baseX + BUTTON_WIDTH * 3 + BUTTON_SPACING * 3 + 16, y = y + 2, w = INPUT_FIELD_WIDTH, h = BUTTON_HEIGHT},
+    }
+end
+
+local function applyPercentChange(var, percent)
+    if var.readOnly then return end
+    local multiplier = 1 + (percent / 100)
+
+    if var.varType == "number" then
+        local newVal = _G[var.name] * multiplier
+        -- Clamp to bounds
+        newVal = math.max(var.min, math.min(var.max, newVal))
+        -- Snap to integer if default was integer
+        if var.defaultValue == math.floor(var.defaultValue) then
+            newVal = math.floor(newVal + 0.5)
+        end
+        _G[var.name] = newVal
+    elseif var.varType == "color" then
+        local current = _G[var.name]
+        _G[var.name] = {
+            math.max(0, math.min(1, current[1] * multiplier)),
+            math.max(0, math.min(1, current[2] * multiplier)),
+            math.max(0, math.min(1, current[3] * multiplier)),
+        }
+    end
+    var.flashTimer = FLASH_DURATION
+    var.cachedValue = deepCopy(_G[var.name])
+end
+
+local function resetToDefault(var)
+    if var.readOnly then return end
+    _G[var.name] = deepCopy(var.defaultValue)
+    var.flashTimer = FLASH_DURATION
+    var.cachedValue = deepCopy(_G[var.name])
+end
+
+local function startInputEdit(var)
+    focusedInput = var.name
+    inputEditBuffer = formatValue(var)
+    inputCursorPos = #inputEditBuffer
+end
+
+local function commitInputEdit()
+    if not focusedInput then return end
+
+    local var = variables[focusedInput]
+    if var then
+        local success, parsed = parseValue(inputEditBuffer, var.varType)
+        if success then
+            _G[focusedInput] = parsed
+            var.flashTimer = FLASH_DURATION
+            var.cachedValue = deepCopy(parsed)
+        else
+            errorMessage = "Invalid value"
+            errorTimer = ERROR_DISPLAY_TIME
+        end
+    end
+    focusedInput = nil
+    inputEditBuffer = ""
+    inputCursorPos = 0
+end
+
+local function cancelInputEdit()
+    focusedInput = nil
+    inputEditBuffer = ""
+    inputCursorPos = 0
+end
+
+-- ===================
+-- DRAWING HELPERS
+-- ===================
+
+local function drawButton(x, y, w, h, label, hovered, active, accentColor)
+    -- Background
+    if active then
+        love.graphics.setColor(0.08, 0.08, 0.08, 1)
+    elseif hovered then
+        love.graphics.setColor(0.25, 0.28, 0.3, 1)
+    else
+        love.graphics.setColor(0.15, 0.15, 0.18, 1)
+    end
+    love.graphics.rectangle("fill", x, y, w, h, 3, 3)
+
+    -- Border
+    love.graphics.setColor(accentColor[1], accentColor[2], accentColor[3], hovered and 0.8 or 0.4)
+    love.graphics.rectangle("line", x, y, w, h, 3, 3)
+
+    -- Label (centered)
+    love.graphics.setColor(1, 1, 1, 0.9)
+    local font = love.graphics.getFont()
+    local textW = font:getWidth(label)
+    love.graphics.print(label, x + (w - textW) / 2, y + 2)
+end
+
+local function drawInputField(x, y, w, h, var, focused, hovered, accentColor)
+    -- Background
+    if focused then
+        love.graphics.setColor(0.12, 0.12, 0.15, 1)
+    else
+        love.graphics.setColor(0.08, 0.08, 0.1, 1)
+    end
+    love.graphics.rectangle("fill", x, y, w, h, 3, 3)
+
+    -- Border
+    if focused then
+        love.graphics.setColor(accentColor[1], accentColor[2], accentColor[3], 0.9)
+    elseif hovered then
+        love.graphics.setColor(accentColor[1], accentColor[2], accentColor[3], 0.5)
+    else
+        love.graphics.setColor(0.3, 0.3, 0.35, 0.6)
+    end
+    love.graphics.rectangle("line", x, y, w, h, 3, 3)
+
+    -- Text content
+    love.graphics.setColor(1, 1, 1, 0.9)
+    local displayText = focused and inputEditBuffer or formatValue(var)
+    -- Truncate if too long
+    local font = love.graphics.getFont()
+    while font:getWidth(displayText) > w - 8 and #displayText > 1 do
+        displayText = displayText:sub(1, -2)
+    end
+    love.graphics.print(displayText, x + 4, y + 2)
+
+    -- Cursor (when focused)
+    if focused and math.floor(inputCursorBlink * 2) % 2 == 0 then
+        local cursorX = x + 4 + font:getWidth(inputEditBuffer:sub(1, inputCursorPos))
+        love.graphics.setColor(accentColor[1], accentColor[2], accentColor[3], 1)
+        love.graphics.rectangle("fill", cursorX, y + 3, 1, h - 6)
+    end
+end
+
+-- ===================
+-- COMMAND PARSING
+-- ===================
+
 local function processCommand(cmd)
     local varName, value = cmd:match("^set%s+([A-Z_][A-Z0-9_]*)%s+(.+)$")
     if not varName then
@@ -365,7 +483,7 @@ local function processCommand(cmd)
     end
 
     if cmd:lower() == "help" then
-        errorMessage = "Syntax: set VAR_NAME value | Or drag sliders!"
+        errorMessage = "Syntax: set VAR_NAME value"
         errorTimer = ERROR_DISPLAY_TIME * 1.5
         return true
     end
@@ -445,37 +563,20 @@ function DebugConsole:update(dt)
         end
     end
 
-    -- Handle slider dragging
-    if draggingVar and love.mouse.isDown(1) then
-        local mx = love.mouse.getX()
-        local delta = mx - dragStartX
-        local range = draggingVar.max - draggingVar.min
-        local valueDelta = (delta / SLIDER_WIDTH) * range
-        local newVal = math.max(draggingVar.min, math.min(draggingVar.max, dragStartValue + valueDelta))
-        setSliderValue(draggingVar, newVal)
-    elseif draggingVar and not love.mouse.isDown(1) then
-        -- Stopped dragging - update cached value and bounds
-        draggingVar.cachedValue = deepCopy(_G[draggingVar.name])
-        draggingVar.min, draggingVar.max = calculateBounds(
-            draggingVar.varType == "number" and _G[draggingVar.name] or 0,
-            draggingVar.varType
-        )
-        draggingVar = nil
-    end
+    -- Update cursor blink timer
+    inputCursorBlink = inputCursorBlink + dt
 end
 
 function DebugConsole:draw()
     if not consoleVisible then return end
 
-    -- Background
-    love.graphics.setColor(0, 0, 0, 0.94)
-    love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
+    -- Background (fully transparent)
+    -- love.graphics.setColor(0, 0, 0, 0.94)
+    -- love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
 
-    -- Header
-    love.graphics.setColor(0.15, 0.15, 0.2, 1)
-    love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, HEADER_HEIGHT)
+    -- Header (no background)
     love.graphics.setColor(0.6, 0.8, 1.0, 0.9)
-    love.graphics.print("DEBUG CONSOLE  [` close | Scroll: wheel | Drag sliders | Type: set VAR value]",
+    love.graphics.print("DEBUG CONSOLE  [` close | Scroll: wheel | Type: set VAR value]",
                         PADDING, 5)
 
     -- Clip drawing to content area
@@ -530,32 +631,29 @@ function DebugConsole:draw()
             love.graphics.setColor(1, 1, 1, alpha * 0.8)
             love.graphics.print(valueStr, PADDING + NAME_WIDTH, y + 2)
 
-            -- Slider (only for numbers and colors, not arrays or read-only)
+            -- Controls (buttons + input) for editable variables
             if not var.readOnly and (var.varType == "number" or var.varType == "color") then
-                local sx, sy, sw, sh = getSliderRect(i)
+                local pos = getControlPositions(i)
 
-                -- Slider background
-                love.graphics.setColor(0.2, 0.2, 0.25, 0.9)
-                love.graphics.rectangle("fill", sx, sy, sw, sh, 3, 3)
+                -- Draw minus button [-]
+                local minusHovered = hoveredElement and hoveredElement.varName == var.name and hoveredElement.type == "minus"
+                local minusActive = activeButton and activeButton.varName == var.name and activeButton.type == "minus"
+                drawButton(pos.minus.x, pos.minus.y, pos.minus.w, pos.minus.h, "-", minusHovered, minusActive, displayColor)
 
-                -- Slider fill
-                local val = getSliderValue(var)
-                local fillPercent = (val - var.min) / (var.max - var.min)
-                fillPercent = math.max(0, math.min(1, fillPercent))
+                -- Draw reset button [Reset]
+                local resetHovered = hoveredElement and hoveredElement.varName == var.name and hoveredElement.type == "reset"
+                local resetActive = activeButton and activeButton.varName == var.name and activeButton.type == "reset"
+                drawButton(pos.reset.x, pos.reset.y, pos.reset.w, pos.reset.h, "Reset", resetHovered, resetActive, displayColor)
 
-                love.graphics.setColor(displayColor[1] * 0.8, displayColor[2] * 0.8, displayColor[3] * 0.8, 0.9)
-                love.graphics.rectangle("fill", sx, sy, sw * fillPercent, sh, 3, 3)
+                -- Draw plus button [+]
+                local plusHovered = hoveredElement and hoveredElement.varName == var.name and hoveredElement.type == "plus"
+                local plusActive = activeButton and activeButton.varName == var.name and activeButton.type == "plus"
+                drawButton(pos.plus.x, pos.plus.y, pos.plus.w, pos.plus.h, "+", plusHovered, plusActive, displayColor)
 
-                -- Slider border
-                love.graphics.setColor(displayColor[1], displayColor[2], displayColor[3], 0.5)
-                love.graphics.rectangle("line", sx, sy, sw, sh, 3, 3)
-
-                -- Slider handle
-                local handleX = sx + sw * fillPercent
-                love.graphics.setColor(1, 1, 1, 0.9)
-                love.graphics.circle("fill", handleX, sy + sh / 2, 6)
-                love.graphics.setColor(displayColor[1], displayColor[2], displayColor[3], 1)
-                love.graphics.circle("line", handleX, sy + sh / 2, 6)
+                -- Draw input field
+                local inputFocused = focusedInput == var.name
+                local inputHovered = hoveredElement and hoveredElement.varName == var.name and hoveredElement.type == "input"
+                drawInputField(pos.input.x, pos.input.y, pos.input.w, pos.input.h, var, inputFocused, inputHovered, displayColor)
             elseif var.varType == "array" then
                 -- Show array indicator
                 love.graphics.setColor(0.5, 0.5, 0.5, 0.5)
@@ -576,12 +674,6 @@ function DebugConsole:draw()
 
     -- Input line
     local inputY = WINDOW_HEIGHT - INPUT_HEIGHT - PADDING / 2
-
-    love.graphics.setColor(0.08, 0.08, 0.12, 0.98)
-    love.graphics.rectangle("fill", 0, inputY - 4, WINDOW_WIDTH, INPUT_HEIGHT + PADDING)
-
-    love.graphics.setColor(0.3, 0.5, 0.7, 0.6)
-    love.graphics.line(0, inputY - 4, WINDOW_WIDTH, inputY - 4)
 
     -- Prompt
     love.graphics.setColor(0.5, 0.8, 1.0, 1.0)
@@ -626,22 +718,57 @@ function DebugConsole:mousepressed(x, y, button)
     if not consoleVisible then return false end
     if button ~= 1 then return false end
 
-    -- Check if clicking on a slider
+    -- If we have a focused input, clicking outside commits it
+    if focusedInput then
+        local var = variables[focusedInput]
+        if var then
+            for i, v in ipairs(sortedVariables) do
+                if v.name == var.name then
+                    local pos = getControlPositions(i)
+                    local ip = pos.input
+                    if not (x >= ip.x and x <= ip.x + ip.w and y >= ip.y and y <= ip.y + ip.h) then
+                        commitInputEdit()
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    -- Check controls for each variable
     local contentY = HEADER_HEIGHT
     local contentHeight = WINDOW_HEIGHT - HEADER_HEIGHT - INPUT_HEIGHT - PADDING
 
     for i, var in ipairs(sortedVariables) do
         if not var.readOnly and (var.varType == "number" or var.varType == "color") then
-            local sx, sy, sw, sh = getSliderRect(i)
+            local pos = getControlPositions(i)
+            local rowY = pos.minus.y
 
-            -- Expand hit area slightly
-            if x >= sx - 5 and x <= sx + sw + 5 and
-               y >= sy - 5 and y <= sy + sh + 5 and
-               y >= contentY and y < contentY + contentHeight then
-                draggingVar = var
-                dragStartX = x
-                dragStartValue = getSliderValue(var)
-                return true
+            if rowY >= contentY - ROW_HEIGHT and rowY < contentY + contentHeight then
+                -- Check minus button
+                if x >= pos.minus.x and x <= pos.minus.x + pos.minus.w and
+                   y >= pos.minus.y and y <= pos.minus.y + pos.minus.h then
+                    activeButton = {varName = var.name, type = "minus"}
+                    return true
+                end
+                -- Check reset button
+                if x >= pos.reset.x and x <= pos.reset.x + pos.reset.w and
+                   y >= pos.reset.y and y <= pos.reset.y + pos.reset.h then
+                    activeButton = {varName = var.name, type = "reset"}
+                    return true
+                end
+                -- Check plus button
+                if x >= pos.plus.x and x <= pos.plus.x + pos.plus.w and
+                   y >= pos.plus.y and y <= pos.plus.y + pos.plus.h then
+                    activeButton = {varName = var.name, type = "plus"}
+                    return true
+                end
+                -- Check input field
+                if x >= pos.input.x and x <= pos.input.x + pos.input.w and
+                   y >= pos.input.y and y <= pos.input.y + pos.input.h then
+                    startInputEdit(var)
+                    return true
+                end
             end
         end
     end
@@ -650,16 +777,59 @@ function DebugConsole:mousepressed(x, y, button)
 end
 
 function DebugConsole:mousereleased(x, y, button)
-    if draggingVar then
-        draggingVar.cachedValue = deepCopy(_G[draggingVar.name])
-        draggingVar.min, draggingVar.max = calculateBounds(
-            draggingVar.varType == "number" and _G[draggingVar.name] or 0,
-            draggingVar.varType
-        )
-        draggingVar = nil
+    if not consoleVisible then return false end
+
+    if activeButton then
+        local var = variables[activeButton.varName]
+        if var then
+            -- Check if still hovering over same button
+            for i, v in ipairs(sortedVariables) do
+                if v.name == var.name then
+                    local pos = getControlPositions(i)
+                    local btn = pos[activeButton.type]
+                    if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
+                        -- Execute button action
+                        if activeButton.type == "minus" then
+                            applyPercentChange(var, -10)
+                        elseif activeButton.type == "reset" then
+                            resetToDefault(var)
+                        elseif activeButton.type == "plus" then
+                            applyPercentChange(var, 10)
+                        end
+                    end
+                    break
+                end
+            end
+        end
+        activeButton = nil
         return true
     end
     return consoleVisible
+end
+
+function DebugConsole:mousemoved(x, y)
+    if not consoleVisible then return end
+
+    hoveredElement = nil
+    local contentY = HEADER_HEIGHT
+    local contentHeight = WINDOW_HEIGHT - HEADER_HEIGHT - INPUT_HEIGHT - PADDING
+
+    for i, var in ipairs(sortedVariables) do
+        if not var.readOnly and (var.varType == "number" or var.varType == "color") then
+            local pos = getControlPositions(i)
+            local rowY = pos.minus.y
+
+            if rowY >= contentY - ROW_HEIGHT and rowY < contentY + contentHeight then
+                for _, btnType in ipairs({"minus", "reset", "plus", "input"}) do
+                    local btn = pos[btnType]
+                    if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
+                        hoveredElement = {varName = var.name, type = btnType}
+                        return
+                    end
+                end
+            end
+        end
+    end
 end
 
 function DebugConsole:wheelmoved(x, y)
@@ -677,7 +847,11 @@ function DebugConsole:toggle()
         inputBuffer = ""
         autocompleteMatches = {}
         autocompleteIndex = 0
-        draggingVar = nil
+        hoveredElement = nil
+        activeButton = nil
+        focusedInput = nil
+        inputEditBuffer = ""
+        inputCursorPos = 0
     end
 end
 
@@ -686,7 +860,11 @@ function DebugConsole:close()
     inputBuffer = ""
     autocompleteMatches = {}
     autocompleteIndex = 0
-    draggingVar = nil
+    hoveredElement = nil
+    activeButton = nil
+    focusedInput = nil
+    inputEditBuffer = ""
+    inputCursorPos = 0
 end
 
 function DebugConsole:isVisible()
@@ -764,6 +942,53 @@ function DebugConsole:autocomplete()
     else
         autocompleteIndex = 1
     end
+end
+
+-- Handle keypress when text input is focused
+function DebugConsole:handleKeypress(key)
+    if focusedInput then
+        if key == "return" or key == "kpenter" then
+            commitInputEdit()
+            return true
+        elseif key == "escape" then
+            cancelInputEdit()
+            return true
+        elseif key == "backspace" then
+            if inputCursorPos > 0 then
+                inputEditBuffer = inputEditBuffer:sub(1, inputCursorPos - 1) .. inputEditBuffer:sub(inputCursorPos + 1)
+                inputCursorPos = inputCursorPos - 1
+            end
+            return true
+        elseif key == "delete" then
+            if inputCursorPos < #inputEditBuffer then
+                inputEditBuffer = inputEditBuffer:sub(1, inputCursorPos) .. inputEditBuffer:sub(inputCursorPos + 2)
+            end
+            return true
+        elseif key == "left" then
+            inputCursorPos = math.max(0, inputCursorPos - 1)
+            return true
+        elseif key == "right" then
+            inputCursorPos = math.min(#inputEditBuffer, inputCursorPos + 1)
+            return true
+        elseif key == "home" then
+            inputCursorPos = 0
+            return true
+        elseif key == "end" then
+            inputCursorPos = #inputEditBuffer
+            return true
+        end
+    end
+    return false  -- Not handled, pass to command input
+end
+
+-- Handle text input when text input is focused
+function DebugConsole:handleTextInput(text)
+    if focusedInput then
+        inputEditBuffer = inputEditBuffer:sub(1, inputCursorPos) .. text .. inputEditBuffer:sub(inputCursorPos + 1)
+        inputCursorPos = inputCursorPos + #text
+        return true
+    end
+    return false  -- Not handled, pass to command input
 end
 
 function DebugConsole:setValue(name, value)

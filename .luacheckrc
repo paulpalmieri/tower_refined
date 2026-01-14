@@ -32,16 +32,22 @@ globals = {
     "Particle",
     "DamageNumber",
     "Chunk",
+    "CollectibleShard",
+    "FlyingPart",
+    "Drone",
     "Sounds",
     "Feedback",
     "DebrisManager",
     "Lighting",
     "DebugConsole",
+    "SkillTree",
 
     -- Global functions
     "spawnParticle",
     "spawnChunk",
     "spawnDust",
+    "spawnShardCluster",
+    "spawnDamageNumber",
 
     -- Game state
     "tower",
@@ -50,14 +56,18 @@ globals = {
     "particles",
     "damageNumbers",
     "chunks",
+    "flyingParts",
     "dustParticles",
     "gameTime",
     "currentSpawnRate",
     "totalGold",
+    "polygons",
+    "collectibleShards",
+    "drones",
+    "droneProjectiles",
     "totalKills",
     "gameSpeedIndex",
     "startNewRun",
-    "activateNuke",
 
     -- Window constants
     "WINDOW_WIDTH",
@@ -65,19 +75,28 @@ globals = {
     "CENTER_X",
     "CENTER_Y",
 
+    -- Neon color palette
+    "NEON_PRIMARY",
+    "NEON_PRIMARY_DIM",
+    "NEON_PRIMARY_DARK",
+    "NEON_WHITE",
+    "NEON_CYAN",
+    "NEON_YELLOW",
+    "NEON_RED",
+    "NEON_BACKGROUND",
+    "NEON_GRID",
+    "GRID_SIZE",
+    "GRID_LINE_WIDTH",
+
     -- Tower constants
     "TOWER_HP",
     "TOWER_FIRE_RATE",
     "PROJECTILE_SPEED",
     "PROJECTILE_DAMAGE",
 
-    -- Enemy constants
-    "BASIC_HP",
-    "BASIC_SPEED",
-    "FAST_HP",
-    "FAST_SPEED",
-    "TANK_HP",
-    "TANK_SPEED",
+    -- Enemy definitions
+    "ENEMY_SHAPES",
+    "ENEMY_TYPES",
 
     -- Visual grounding
     "SHADOW_OFFSET_X",
@@ -103,11 +122,11 @@ globals = {
     "MUZZLE_FLASH_INTENSITY",
     "MUZZLE_FLASH_DURATION",
     "MUZZLE_FLASH_COLOR",
-    "EYE_LIGHT_RADIUS",
-    "EYE_LIGHT_INTENSITY",
-    "EYE_LIGHT_COLOR",
-    "EYE_LIGHT_FLICKER",
-    "EYE_LIGHT_VARIANCE",
+    "CORE_LIGHT_RADIUS",
+    "CORE_LIGHT_INTENSITY",
+    "CORE_LIGHT_COLOR",
+    "CORE_LIGHT_FLICKER",
+    "CORE_LIGHT_VARIANCE",
     "ENEMY_GLOW_RADIUS",
     "ENEMY_GLOW_INTENSITY",
     "ENEMY_GLOW_FLICKER",
@@ -118,9 +137,6 @@ globals = {
     "TOWER_LIGHT_COLOR",
     "TOWER_LIGHT_PULSE_SPEED",
     "TOWER_LIGHT_PULSE_AMOUNT",
-    "NUKE_LIGHT_RADIUS",
-    "NUKE_LIGHT_INTENSITY",
-    "NUKE_LIGHT_COLOR",
     "SHADOW_MAX_OFFSET",
     "SHADOW_BASE_ALPHA",
     "SHADOW_GLOBAL_ANGLE",
@@ -141,8 +157,11 @@ globals = {
     "DUST_SIZE_MIN",
     "DUST_SIZE_MAX",
 
-    -- Knockback
-    "KNOCKBACK_FORCE",
+    -- Knockback (Dynamic)
+    "KNOCKBACK_BASE_FORCE",
+    "KNOCKBACK_VELOCITY_SCALE",
+    "KNOCKBACK_DAMAGE_SCALE",
+    "KNOCKBACK_MAX_MULTIPLIER",
     "KNOCKBACK_DURATION",
 
     -- Spawning
@@ -185,13 +204,54 @@ globals = {
     "ENEMY_CONTACT_DAMAGE",
     "TOWER_PAD_SIZE",
 
-    -- Active skill
-    "NUKE_DAMAGE",
-    "NUKE_RADIUS",
-    "NUKE_COOLDOWN",
+    -- Active skill (Laser beam)
+    "LASER_DEPLOY_TIME",
+    "LASER_CHARGE_TIME",
+    "LASER_FIRE_TIME",
+    "LASER_RETRACT_TIME",
+    "LASER_DAMAGE_PER_SEC",
+    "LASER_BEAM_LENGTH",
+    "LASER_BEAM_WIDTH",
+
+    -- Active skill (Plasma missile)
+    "PLASMA_CHARGE_TIME",
+    "PLASMA_COOLDOWN_TIME",
+    "PLASMA_DAMAGE",
+    "PLASMA_MISSILE_SPEED",
+    "PLASMA_MISSILE_SIZE",
+    "PLASMA_COLOR",
+    "PLASMA_CORE_COLOR",
+    "PLASMA_LIGHT_RADIUS",
+    "PLASMA_LIGHT_INTENSITY",
+    "PLASMA_SOUND_VOLUME",
 
     -- Gold
     "GOLD_PER_KILL",
+
+    -- Polygons currency
+    "POLYGON_COLOR",
+    "POLYGON_BASE_GLOW",
+    "POLYGON_HOVER_GLOW",
+    "POLYGON_PULSE_SPEED",
+    "POLYGON_PULSE_AMOUNT",
+    "POLYGON_MAGNET_TIME",
+    "POLYGON_LIGHT_RADIUS",
+    "POLYGON_LIGHT_INTENSITY",
+    "POLYGON_EJECT_SPEED",
+    "POLYGON_EJECT_FRICTION",
+    "POLYGON_FRAGMENT_SIZE_RATIO",
+    "POLYGON_FRAGMENT_SPREAD",
+    "POLYGON_PICKUP_RADIUS_BASE",
+    "POLYGON_CLUSTER_SHARD_SIZE",
+    "POLYGON_CLUSTER_SPREAD",
+
+    -- Drone system
+    "DRONE_BASE_FIRE_RATE",
+    "DRONE_PROJECTILE_SPEED",
+    "DRONE_ROTATION_SPEED",
+    "DRONE_LIGHT_RADIUS",
+    "DRONE_LIGHT_INTENSITY",
+    "DRONE_COLOR",
 
     -- Game speed
     "GAME_SPEEDS",
@@ -205,9 +265,39 @@ globals = {
     -- Sound
     "SOUND_SHOOT_VOLUME",
 
-    -- Dismemberment thresholds
-    "DISMEMBER_THRESHOLDS",
-    "MINOR_SPATTER_THRESHOLD",
+    -- Parts system (breakable sides)
+    "PART_FLY_SPEED",
+    "PART_FLY_SPEED_INHERIT",
+    "PART_SPIN_SPEED_MIN",
+    "PART_SPIN_SPEED_MAX",
+    "PART_SETTLE_TIME",
+    "PART_FADE_DURATION",
+    "PART_FRICTION",
+    "PART_SETTLE_VELOCITY",
+    "GAP_DAMAGE_BONUS",
+    "PART_FLASH_DURATION",
+    "CORE_FLASH_DURATION",
+    "IMPACT_SPIN_INCREASE_MIN",
+    "IMPACT_SPIN_INCREASE_MAX",
+    "IMPACT_DISPLACEMENT",
+
+    -- Scaling (fullscreen/resolution)
+    "SCALE_X",
+    "SCALE_Y",
+    "SCALE",
+    "OFFSET_X",
+    "OFFSET_Y",
+
+    -- Impact effects (Dynamic)
+    "IMPACT_BASE_INTENSITY",
+    "IMPACT_VELOCITY_SCALE",
+    "IMPACT_DAMAGE_SCALE",
+    "IMPACT_MAX_INTENSITY",
+
+    -- Death explosion (Dynamic)
+    "EXPLOSION_BASE_VELOCITY",
+    "EXPLOSION_VELOCITY_INHERIT",
+    "EXPLOSION_MAX_VELOCITY",
 
     -- Blood trail settings
     "BLOOD_TRAIL_INTERVAL",
@@ -219,12 +309,82 @@ globals = {
     "CHUNK_SETTLE_DELAY",
     "CHUNK_SETTLE_VELOCITY",
 
-    -- Scope cursor (manual aiming mode)
-    "SCOPE_INNER_RADIUS",
-    "SCOPE_OUTER_RADIUS",
-    "SCOPE_GAP",
-    "SCOPE_LINE_LENGTH",
-    "SCOPE_COLOR",
+    -- Crosshair (manual aiming mode)
+    "CROSSHAIR_GAP",
+    "CROSSHAIR_LENGTH",
+    "CROSSHAIR_THICKNESS",
+    "CROSSHAIR_COLOR",
+    "CROSSHAIR_GLOW_LAYERS",
+    "CROSSHAIR_GLOW_SPREAD",
+
+    -- Font
+    "FONT_PATH",
+    "FONT_SIZE",
+
+    -- Post-processing
+    "PostFX",
+    "CHROMATIC_ABERRATION_ENABLED",
+    "CHROMATIC_ABERRATION_AMOUNT",
+    "CHROMATIC_ABERRATION_FALLOFF",
+    "BLOOM_ENABLED",
+    "BLOOM_SCALE",
+    "BLOOM_INTENSITY",
+    "BLOOM_BLUR_PASSES",
+    "BLOOM_THRESHOLD",
+    "BLOOM_SOFT_THRESHOLD",
+    "CRT_ENABLED",
+    "CRT_SCANLINE_INTENSITY",
+    "CRT_SCANLINE_COUNT",
+    "CRT_CURVATURE",
+    "CRT_VIGNETTE",
+    "GLITCH_ENABLED",
+    "GLITCH_INTENSITY",
+    "GLITCH_SCANLINE_JITTER",
+    "HEAT_DISTORTION_ENABLED",
+    "HEAT_DISTORTION_INTENSITY",
+    "HEAT_DISTORTION_FREQUENCY",
+    "HEAT_DISTORTION_SPEED",
+
+    -- Shield system
+    "Shield",
+    "SHIELD_BASE_RADIUS",
+    "SHIELD_PULSE_SPEED",
+    "SHIELD_PULSE_AMOUNT",
+    "SHIELD_HIT_FLASH_DURATION",
+    "SHIELD_HIT_PULSE_AMOUNT",
+    "SHIELD_HIT_PULSE_DECAY",
+    "SHIELD_COLOR_OUTER",
+    "SHIELD_COLOR_MID",
+    "SHIELD_COLOR_INNER",
+    "SHIELD_COLOR_FILL",
+
+    -- Missile silo system
+    "Silo",
+    "Missile",
+    "silos",
+    "missiles",
+    "SILO_ORBIT_RADIUS",
+    "SILO_SIZE",
+    "SILO_HATCH_GAP",
+    "SILO_BASE_FIRE_RATE",
+    "SILO_HATCH_OPEN_TIME",
+    "SILO_HATCH_CLOSE_TIME",
+    "SILO_FIRE_DELAY",
+    "MISSILE_SPEED",
+    "MISSILE_TURN_RATE",
+    "MISSILE_DAMAGE",
+    "MISSILE_SIZE",
+    "MISSILE_TRAIL_LENGTH",
+    "MISSILE_COLOR",
+    "MISSILE_CORE_COLOR",
+    "MISSILE_TRAIL_COLOR",
+    "SILO_COLOR",
+    "SILO_FILL_COLOR",
+    "SILO_GLOW_COLOR",
+    "MISSILE_LIGHT_RADIUS",
+    "MISSILE_LIGHT_INTENSITY",
+    "MISSILE_EXPLOSION_PARTICLES",
+    "MISSILE_EXPLOSION_VELOCITY",
 }
 
 -- Exclude library files from linting

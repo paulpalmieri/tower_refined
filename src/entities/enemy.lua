@@ -1,1209 +1,573 @@
 -- enemy.lua
--- Top-down pixel devil enemy with animated legs
+-- Neon Geometric Enemies
 
 local Enemy = Object:extend()
-local MonsterSpec = require "src.monster_spec"
-
--- Get color palettes from MonsterSpec
-local DEVIL_COLORS_BASIC = MonsterSpec.palettes.basic
-local DEVIL_COLORS_FAST = MonsterSpec.palettes.fast
-local DEVIL_COLORS_TANK = MonsterSpec.palettes.tank
-
--- Get layer order from MonsterSpec
-local LAYER_ORDER = MonsterSpec.LAYER_ORDER
-
--- Animation frames for walking (4 frames)
--- Top-down view: horns point up (forward), tail points down (back)
--- Legs move FORWARD/BACKWARD (Y axis) for realistic running gait
-local DEVIL_FRAMES = {
-    -- Frame 1: Diagonal stride A (Left-front + Right-back reaching forward)
-    {
-        -- Horns (pointing forward/up)
-        {-1, -5, "horn", "horn"},
-        {0, -6, "horn", "hornLight"},
-        {1, -5, "horn", "horn"},
-
-        -- Head top
-        {-2, -4, "outer", "body"},
-        {-1, -4, "outer", "bodyLight"},
-        {0, -4, "outer", "bodyLight"},
-        {1, -4, "outer", "bodyLight"},
-        {2, -4, "outer", "body"},
-
-        -- Head with eyes
-        {-2, -3, "outer", "body"},
-        {-1, -3, "eye", "eyeWhite"},
-        {0, -3, "inner", "bodyInner"},
-        {1, -3, "eye", "eyeWhite"},
-        {2, -3, "outer", "body"},
-
-        -- Front legs (LEFT reaching forward, RIGHT pushing back)
-        {-3, -4, "leg", "leg"},      -- Left front FORWARD (y=-4, reaching ahead)
-        {-4, -3, "leg", "legDark"},
-        {3, -1, "leg", "legDark"},   -- Right front BACK (y=-1, pushing behind)
-        {4, 0, "leg", "leg"},
-
-        -- Upper body
-        {-2, -2, "outer", "body"},
-        {-1, -2, "inner", "bodyInner"},
-        {0, -2, "core", "core"},
-        {1, -2, "inner", "bodyInner"},
-        {2, -2, "outer", "body"},
-
-        -- Mid body
-        {-2, -1, "outer", "body"},
-        {-1, -1, "inner", "bodyInner"},
-        {0, -1, "core", "core"},
-        {1, -1, "inner", "bodyInner"},
-        {2, -1, "outer", "body"},
-
-        -- Lower body
-        {-2, 0, "outer", "bodyDark"},
-        {-1, 0, "inner", "body"},
-        {0, 0, "inner", "bodyInner"},
-        {1, 0, "inner", "body"},
-        {2, 0, "outer", "bodyDark"},
-
-        -- Back legs (RIGHT reaching forward, LEFT pushing back)
-        {3, 0, "leg", "legDark"},    -- Right back FORWARD (y=0, reaching)
-        {4, -1, "leg", "leg"},
-        {-3, 2, "leg", "legDark"},   -- Left back BACK (y=2, pushing)
-        {-4, 3, "leg", "leg"},
-
-        -- Rump
-        {-1, 1, "outer", "bodyDark"},
-        {0, 1, "outer", "body"},
-        {1, 1, "outer", "bodyDark"},
-
-        -- Tail
-        {0, 2, "outer", "tail"},
-        {0, 3, "outer", "tail"},
-        {-1, 4, "outer", "tailTip"},
-    },
-
-    -- Frame 2: Passing position (legs underneath body)
-    {
-        -- Horns
-        {-1, -5, "horn", "horn"},
-        {0, -6, "horn", "hornLight"},
-        {1, -5, "horn", "horn"},
-
-        -- Head top
-        {-2, -4, "outer", "body"},
-        {-1, -4, "outer", "bodyLight"},
-        {0, -4, "outer", "bodyLight"},
-        {1, -4, "outer", "bodyLight"},
-        {2, -4, "outer", "body"},
-
-        -- Head with eyes
-        {-2, -3, "outer", "body"},
-        {-1, -3, "eye", "eyeWhite"},
-        {0, -3, "inner", "bodyInner"},
-        {1, -3, "eye", "eyeWhite"},
-        {2, -3, "outer", "body"},
-
-        -- Front legs (neutral, tucked under)
-        {-3, -2, "leg", "leg"},
-        {-4, -2, "leg", "legDark"},
-        {3, -2, "leg", "leg"},
-        {4, -2, "leg", "legDark"},
-
-        -- Upper body
-        {-2, -2, "outer", "body"},
-        {-1, -2, "inner", "bodyInner"},
-        {0, -2, "core", "core"},
-        {1, -2, "inner", "bodyInner"},
-        {2, -2, "outer", "body"},
-
-        -- Mid body
-        {-2, -1, "outer", "body"},
-        {-1, -1, "inner", "bodyInner"},
-        {0, -1, "core", "core"},
-        {1, -1, "inner", "bodyInner"},
-        {2, -1, "outer", "body"},
-
-        -- Lower body
-        {-2, 0, "outer", "bodyDark"},
-        {-1, 0, "inner", "body"},
-        {0, 0, "inner", "bodyInner"},
-        {1, 0, "inner", "body"},
-        {2, 0, "outer", "bodyDark"},
-
-        -- Back legs (neutral, tucked under)
-        {-3, 1, "leg", "leg"},
-        {-4, 1, "leg", "legDark"},
-        {3, 1, "leg", "leg"},
-        {4, 1, "leg", "legDark"},
-
-        -- Rump
-        {-1, 1, "outer", "bodyDark"},
-        {0, 1, "outer", "body"},
-        {1, 1, "outer", "bodyDark"},
-
-        -- Tail
-        {0, 2, "outer", "tail"},
-        {0, 3, "outer", "tail"},
-        {1, 4, "outer", "tailTip"},
-    },
-
-    -- Frame 3: Diagonal stride B (Right-front + Left-back reaching forward)
-    {
-        -- Horns
-        {-1, -5, "horn", "horn"},
-        {0, -6, "horn", "hornLight"},
-        {1, -5, "horn", "horn"},
-
-        -- Head top
-        {-2, -4, "outer", "body"},
-        {-1, -4, "outer", "bodyLight"},
-        {0, -4, "outer", "bodyLight"},
-        {1, -4, "outer", "bodyLight"},
-        {2, -4, "outer", "body"},
-
-        -- Head with eyes
-        {-2, -3, "outer", "body"},
-        {-1, -3, "eye", "eyeWhite"},
-        {0, -3, "inner", "bodyInner"},
-        {1, -3, "eye", "eyeWhite"},
-        {2, -3, "outer", "body"},
-
-        -- Front legs (RIGHT reaching forward, LEFT pushing back)
-        {-3, -1, "leg", "legDark"},  -- Left front BACK (y=-1, pushing)
-        {-4, 0, "leg", "leg"},
-        {3, -4, "leg", "legDark"},   -- Right front FORWARD (y=-4, reaching)
-        {4, -3, "leg", "leg"},
-
-        -- Upper body
-        {-2, -2, "outer", "body"},
-        {-1, -2, "inner", "bodyInner"},
-        {0, -2, "core", "core"},
-        {1, -2, "inner", "bodyInner"},
-        {2, -2, "outer", "body"},
-
-        -- Mid body
-        {-2, -1, "outer", "body"},
-        {-1, -1, "inner", "bodyInner"},
-        {0, -1, "core", "core"},
-        {1, -1, "inner", "bodyInner"},
-        {2, -1, "outer", "body"},
-
-        -- Lower body
-        {-2, 0, "outer", "bodyDark"},
-        {-1, 0, "inner", "body"},
-        {0, 0, "inner", "bodyInner"},
-        {1, 0, "inner", "body"},
-        {2, 0, "outer", "bodyDark"},
-
-        -- Back legs (LEFT reaching forward, RIGHT pushing back)
-        {-3, 0, "leg", "legDark"},   -- Left back FORWARD (y=0, reaching)
-        {-4, -1, "leg", "leg"},
-        {3, 2, "leg", "legDark"},    -- Right back BACK (y=2, pushing)
-        {4, 3, "leg", "leg"},
-
-        -- Rump
-        {-1, 1, "outer", "bodyDark"},
-        {0, 1, "outer", "body"},
-        {1, 1, "outer", "bodyDark"},
-
-        -- Tail
-        {0, 2, "outer", "tail"},
-        {0, 3, "outer", "tail"},
-        {-1, 4, "outer", "tailTip"},
-    },
-
-    -- Frame 4: Passing position (legs underneath body)
-    {
-        -- Horns
-        {-1, -5, "horn", "horn"},
-        {0, -6, "horn", "hornLight"},
-        {1, -5, "horn", "horn"},
-
-        -- Head top
-        {-2, -4, "outer", "body"},
-        {-1, -4, "outer", "bodyLight"},
-        {0, -4, "outer", "bodyLight"},
-        {1, -4, "outer", "bodyLight"},
-        {2, -4, "outer", "body"},
-
-        -- Head with eyes
-        {-2, -3, "outer", "body"},
-        {-1, -3, "eye", "eyeWhite"},
-        {0, -3, "inner", "bodyInner"},
-        {1, -3, "eye", "eyeWhite"},
-        {2, -3, "outer", "body"},
-
-        -- Front legs (neutral, tucked under)
-        {-3, -2, "leg", "legDark"},
-        {-4, -2, "leg", "leg"},
-        {3, -2, "leg", "legDark"},
-        {4, -2, "leg", "leg"},
-
-        -- Upper body
-        {-2, -2, "outer", "body"},
-        {-1, -2, "inner", "bodyInner"},
-        {0, -2, "core", "core"},
-        {1, -2, "inner", "bodyInner"},
-        {2, -2, "outer", "body"},
-
-        -- Mid body
-        {-2, -1, "outer", "body"},
-        {-1, -1, "inner", "bodyInner"},
-        {0, -1, "core", "core"},
-        {1, -1, "inner", "bodyInner"},
-        {2, -1, "outer", "body"},
-
-        -- Lower body
-        {-2, 0, "outer", "bodyDark"},
-        {-1, 0, "inner", "body"},
-        {0, 0, "inner", "bodyInner"},
-        {1, 0, "inner", "body"},
-        {2, 0, "outer", "bodyDark"},
-
-        -- Back legs (neutral, tucked under)
-        {-3, 1, "leg", "legDark"},
-        {-4, 1, "leg", "leg"},
-        {3, 1, "leg", "legDark"},
-        {4, 1, "leg", "leg"},
-
-        -- Rump
-        {-1, 1, "outer", "bodyDark"},
-        {0, 1, "outer", "body"},
-        {1, 1, "outer", "bodyDark"},
-
-        -- Tail
-        {0, 2, "outer", "tail"},
-        {0, 3, "outer", "tail"},
-        {1, 4, "outer", "tailTip"},
-    },
-}
-
--- Animation constants
-local ANIM_FRAME_DURATION = 0.017  -- ~10 FPS walk cycle (slower, more deliberate)
 
 function Enemy:new(x, y, scale, enemyType)
     self.x = x
     self.y = y
-    self.scale = scale or 1.0
     self.enemyType = enemyType or "basic"
+
+    -- Get stats from config
+    local stats = ENEMY_TYPES[self.enemyType] or ENEMY_TYPES.basic
+    self.shapeName = stats.shape
+    self.speed = stats.speed * lume.random(1 - SPEED_VARIATION, 1 + SPEED_VARIATION)
+    self.scale = scale or stats.scale
+    self.baseScale = self.scale
+    self.size = stats.baseSize
+    self.color = stats.color
+
+    -- Parts system (each side is a breakable part)
+    local shape = ENEMY_SHAPES[self.shapeName]
+    self.numParts = #shape
+
+    -- HP = 1 (core) + number of sides (parts)
+    -- Triangle: 4 HP, Square: 5 HP, Pentagon: 6 HP
+    self.hp = 1 + self.numParts
+    self.maxHp = 1 + self.numParts
+
+    self.parts = {}
+    for i = 1, self.numParts do
+        self.parts[i] = {
+            alive = true,
+            flashTimer = 0,
+        }
+    end
+    self.alivePartCount = self.numParts
+    self.coreFlashTimer = 0
+
+    -- State
     self.dead = false
     self.flashTimer = 0
+    self.knockbackX = 0
+    self.knockbackY = 0
 
-    -- Movement
-    self.vx = 0
-    self.vy = 0
-    self.speed = BASIC_SPEED
-    self.angle = 0
-
-    -- Knockback
-    self.knockbackVx = 0
-    self.knockbackVy = 0
-    self.knockbackTimer = 0
-
-    -- Animation
-    self.animFrame = 1
-    self.animTimer = 0
-
-    -- HP system and color palette based on enemy type
-    self.maxHp = BASIC_HP
-    self.colors = DEVIL_COLORS_BASIC
-    if enemyType == "fast" then
-        self.speed = FAST_SPEED
-        self.scale = 0.7
-        self.maxHp = FAST_HP
-        self.colors = DEVIL_COLORS_FAST
-    elseif enemyType == "tank" then
-        self.speed = TANK_SPEED
-        self.scale = 1.4
-        self.maxHp = TANK_HP
-        self.colors = DEVIL_COLORS_TANK
-    end
-    self.hp = self.maxHp
-
-    -- Speed variation (chaos)
-    local speedMult = 1.0 + lume.random(-SPEED_VARIATION, SPEED_VARIATION)
-    self.speed = self.speed * speedMult
-
-    -- Animation speed scales with movement speed so legs match travel
-    self.animSpeed = self.speed * ANIM_SPEED_SCALE
-
-    -- Visual grounding state
-    self.bobOffset = 0
-    self.swayOffset = 0
-    self.spawnTimer = SPAWN_LAND_DURATION
-    self.isSpawning = true
-
-    -- Pending limb pixels (for accumulating damage before spawning chunks)
-    self.pendingLimbPixels = {}
-
-    -- Health threshold tracking for dismemberment
-    self.lastHpPercent = 1.0          -- Previous HP percentage
-    self.brokenParts = {}             -- Track which thresholds have triggered
-
-    -- Generate pixels for current frame
-    self.pixels = {}
-    self.basePixels = {}  -- Store original pixel definitions
-    self.totalPixelCount = 0
-    self:generatePixels()
-
-    -- Register eye lights with Lighting system
-    self.eyeLightIds = {}
-    self:registerEyeLights()
-
-    -- Register body glow with Lighting system (uses body color)
-    self.bodyGlowId = nil
-    self:registerBodyGlow()
-end
-
--- Register eye lights with the Lighting system
-function Enemy:registerEyeLights()
-    for _, bp in ipairs(self.basePixels) do
-        if bp.layer == "eye" then
-            local lightId = Lighting:addEyeGlow(self, 0, 0)
-            table.insert(self.eyeLightIds, lightId)
-        end
-    end
-end
-
--- Remove eye lights from the Lighting system
-function Enemy:removeEyeLights()
-    for _, lightId in ipairs(self.eyeLightIds) do
-        Lighting:removeLight(lightId)
-    end
-    self.eyeLightIds = {}
-end
-
--- Register body glow with the Lighting system
-function Enemy:registerBodyGlow()
-    -- Use the body color from the enemy's palette for the glow
-    local glowColor = self.colors.body
-    self.bodyGlowId = Lighting:addEnemyBodyGlow(self, glowColor)
-end
-
--- Remove body glow from the Lighting system
-function Enemy:removeBodyGlow()
-    if self.bodyGlowId then
-        Lighting:removeLight(self.bodyGlowId)
-        self.bodyGlowId = nil
-    end
-end
-
-function Enemy:generatePixels()
-    local ps = BLOB_PIXEL_SIZE * self.scale
-    local frameData = DEVIL_FRAMES[self.animFrame]
-
-    -- Store base definitions for damage tracking (only once)
-    if #self.basePixels == 0 then
-        for i, def in ipairs(frameData) do
-            local ox, oy, layer, colorKey = def[1], def[2], def[3], def[4]
-            local baseColor = self.colors[colorKey]
-
-            local variation = lume.random(-0.03, 0.03)
-            local color = {
-                lume.clamp(baseColor[1] + variation, 0, 1),
-                lume.clamp(baseColor[2] + variation, 0, 1),
-                lume.clamp(baseColor[3] + variation, 0, 1)
-            }
-
-            self.basePixels[i] = {
-                baseOx = ox,
-                baseOy = oy,
-                layer = layer,
-                layerOrder = LAYER_ORDER[layer] or 3,
-                color = color,
-                alive = true
-            }
-        end
-        self.totalPixelCount = #self.basePixels
-    end
-
-    -- Update pixel positions from current frame
-    self.pixels = {}
-    for i, def in ipairs(frameData) do
-        local ox, oy = def[1], def[2]
-
-        if self.basePixels[i] and self.basePixels[i].alive then
-            table.insert(self.pixels, {
-                ox = ox * ps,
-                oy = oy * ps,
-                layer = self.basePixels[i].layer,
-                layerOrder = self.basePixels[i].layerOrder,
-                color = self.basePixels[i].color,
-                alive = true,
-                baseIndex = i
-            })
-        end
-    end
+    -- Simple rotation for visual interest
+    self.rotation = 0
+    self.rotationSpeed = lume.random(-1, 1)
 end
 
 function Enemy:update(dt)
-    -- Spawn landing animation
-    if self.isSpawning then
-        self.spawnTimer = self.spawnTimer - dt
-        if self.spawnTimer <= 0 then
-            self.isSpawning = false
+    if self.dead then return end
+
+    -- Rotate slowly
+    self.rotation = self.rotation + self.rotationSpeed * dt
+
+    -- Update part flash timers
+    for i = 1, self.numParts do
+        if self.parts[i].flashTimer > 0 then
+            self.parts[i].flashTimer = self.parts[i].flashTimer - dt
         end
     end
 
-    -- Flash timer
-    if self.flashTimer > 0 then
-        self.flashTimer = self.flashTimer - dt
+    -- Update core flash timer
+    if self.coreFlashTimer > 0 then
+        self.coreFlashTimer = self.coreFlashTimer - dt
     end
 
-    -- Knockback physics (the juicy part)
-    if self.knockbackTimer > 0 then
-        self.knockbackTimer = self.knockbackTimer - dt
-        self.x = self.x + self.knockbackVx * dt
-        self.y = self.y + self.knockbackVy * dt
-        self.knockbackVx = self.knockbackVx * 0.85
-        self.knockbackVy = self.knockbackVy * 0.85
+    -- Apply knockback (fast decay for punchy feel)
+    if self.knockbackX ~= 0 or self.knockbackY ~= 0 then
+        self.x = self.x + self.knockbackX * dt
+        self.y = self.y + self.knockbackY * dt
+        self.knockbackX = self.knockbackX * (1 - 12 * dt)
+        self.knockbackY = self.knockbackY * (1 - 12 * dt)
+        if math.abs(self.knockbackX) < 1 then self.knockbackX = 0 end
+        if math.abs(self.knockbackY) < 1 then self.knockbackY = 0 end
     end
 
-    -- Movement toward target
-    if self.vx ~= 0 or self.vy ~= 0 then
-        -- Instant facing (no smooth turning)
-        self.angle = math.atan2(self.vy, self.vx) + math.pi / 2
-
-        -- Walk animation (purely visual)
-        self.animTimer = self.animTimer + dt * self.animSpeed
-        if self.animTimer >= ANIM_FRAME_DURATION then
-            self.animTimer = 0
-            self.animFrame = (self.animFrame % 4) + 1
-            self:generatePixels()
-
-            -- Dust on push frames
-            if self.animFrame == 1 or self.animFrame == 3 then
-                spawnDust(self.x, self.y, self.angle - math.pi / 2)
-            end
-        end
-
-        -- Simple sine bob (critter feel)
-        -- bobPhase goes 0→4 over one full walk cycle (4 frames)
-        local bobPhase = (self.animTimer / ANIM_FRAME_DURATION) + (self.animFrame - 1)
-
-        -- Bob happens twice per cycle (up on each push frame)
-        self.bobOffset = math.sin(bobPhase * math.pi) * BOB_AMPLITUDE
-
-        -- Sway happens once per cycle (body shifts opposite to pushing legs)
-        -- Use half frequency so one full left-right-left cycle per 4 frames
-        self.swayOffset = math.sin(bobPhase * math.pi * 0.5) * SWAY_AMPLITUDE
-
-        -- Direct movement at constant speed
-        local newX = self.x + self.vx * self.speed * dt
-        local newY = self.y + self.vy * self.speed * dt
-
-        -- Clamp to tower pad boundary (don't enter the pad)
-        local padHalfSize = TOWER_PAD_SIZE * BLOB_PIXEL_SIZE * TURRET_SCALE
-        local towerX, towerY = CENTER_X, CENTER_Y
-
-        -- Check if new position would be inside pad
-        local dxNew = newX - towerX
-        local dyNew = newY - towerY
-        if math.abs(dxNew) < padHalfSize and math.abs(dyNew) < padHalfSize then
-            -- Clamp to nearest edge
-            if math.abs(dxNew) > math.abs(dyNew) then
-                -- Closer to left/right edge
-                newX = towerX + (dxNew > 0 and padHalfSize or -padHalfSize)
-            else
-                -- Closer to top/bottom edge
-                newY = towerY + (dyNew > 0 and padHalfSize or -padHalfSize)
-            end
-        end
-
-        self.x = newX
-        self.y = newY
-    end
-end
-
-function Enemy:moveToward(targetX, targetY)
-    local dx = targetX - self.x
-    local dy = targetY - self.y
+    -- Move toward tower
+    local dx = tower.x - self.x
+    local dy = tower.y - self.y
     local dist = math.sqrt(dx * dx + dy * dy)
 
-    if dist > 0 then
-        -- Normalized direction vector
-        self.vx = dx / dist
-        self.vy = dy / dist
+    if dist > 5 then
+        local moveX = (dx / dist) * self.speed * dt
+        local moveY = (dy / dist) * self.speed * dt
+        self.x = self.x + moveX
+        self.y = self.y + moveY
     end
-end
-
-function Enemy:applyKnockback(angle, force)
-    self.knockbackVx = math.cos(angle) * force
-    self.knockbackVy = math.sin(angle) * force
-    self.knockbackTimer = KNOCKBACK_DURATION
 end
 
 function Enemy:draw()
-    local ps = BLOB_PIXEL_SIZE * self.scale
+    if self.dead then return end
 
-    -- Calculate distance from center for fog visibility
-    local distFromCenter = math.sqrt((self.x - CENTER_X)^2 + (self.y - CENTER_Y)^2)
+    local shape = ENEMY_SHAPES[self.shapeName]
+    local radius = self.size * self.scale
+    local coreRadius = radius * 0.92  -- Slightly smaller for core fill
 
-    -- Fog visibility based on vignette area
-    local maxDist = math.sqrt(WINDOW_WIDTH * WINDOW_WIDTH / 4 + WINDOW_HEIGHT * WINDOW_HEIGHT / 4)
-    local visibleDist = maxDist * VIGNETTE_START
-    local fogDist = maxDist * 0.85
-
-    local bodyAlpha = 1.0
-    if distFromCenter > visibleDist then
-        bodyAlpha = 1.0 - math.min(1.0, (distFromCenter - visibleDist) / (fogDist - visibleDist))
+    -- Build vertices for outline
+    local verts = {}
+    for _, v in ipairs(shape) do
+        local rx = v[1] * math.cos(self.rotation) - v[2] * math.sin(self.rotation)
+        local ry = v[1] * math.sin(self.rotation) + v[2] * math.cos(self.rotation)
+        table.insert(verts, self.x + rx * radius)
+        table.insert(verts, self.y + ry * radius)
     end
 
-    -- Fog glow factor (1 = fully in fog, 0 = fully visible)
-    local fogGlow = 1.0 - bodyAlpha
-
-    -- Draw body with bobbing offset
-    -- Sway is applied perpendicular to facing direction (local X after rotation)
-    love.graphics.push()
-    love.graphics.translate(self.x, self.y + self.bobOffset)
-    love.graphics.rotate(self.angle)
-    love.graphics.translate(self.swayOffset, 0)  -- Local X = perpendicular to facing
-
-    -- Draw edge glow when in fog (outline effect)
-    if fogGlow > 0.1 then
-        local glowColor = EYE_LIGHT_COLOR
-        local glowAlpha = fogGlow * 0.3
-        local glowOffset = ps * 0.4
-
-        -- Draw glow behind each pixel (offset in multiple directions for outline effect)
-        for _, pixel in ipairs(self.pixels) do
-            if pixel.alive then
-                love.graphics.setColor(glowColor[1], glowColor[2], glowColor[3], glowAlpha)
-                -- Draw slightly larger rectangles offset in each direction
-                for _, dir in ipairs({{1,0}, {-1,0}, {0,1}, {0,-1}}) do
-                    love.graphics.rectangle("fill",
-                        pixel.ox - ps / 2 + dir[1] * glowOffset,
-                        pixel.oy - ps / 2 + dir[2] * glowOffset,
-                        ps, ps)
-                end
-            end
-        end
+    -- Build vertices for core (slightly smaller)
+    local coreVerts = {}
+    for _, v in ipairs(shape) do
+        local rx = v[1] * math.cos(self.rotation) - v[2] * math.sin(self.rotation)
+        local ry = v[1] * math.sin(self.rotation) + v[2] * math.cos(self.rotation)
+        table.insert(coreVerts, self.x + rx * coreRadius)
+        table.insert(coreVerts, self.y + ry * coreRadius)
     end
 
-    -- Draw all body pixels (non-eyes) with tight directional shading
-    for _, pixel in ipairs(self.pixels) do
-        if pixel.alive and pixel.layer ~= "eye" then
-            local drawColor
+    local baseColor = self.color
 
-            if self.flashTimer > 0 then
-                drawColor = {1, 1, 1}
+    -- Outer glow (all sides, creates "skeleton" effect)
+    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.15)
+    love.graphics.setLineWidth(12)
+    love.graphics.polygon("line", verts)
+
+    -- Mid glow (all sides)
+    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.25)
+    love.graphics.setLineWidth(6)
+    love.graphics.polygon("line", verts)
+
+    -- Dark fill (core) - flash white when hit through gap
+    local coreColor = baseColor
+    if self.coreFlashTimer > 0 then
+        local flashIntensity = self.coreFlashTimer / CORE_FLASH_DURATION
+        coreColor = {
+            lume.lerp(baseColor[1], 1, flashIntensity),
+            lume.lerp(baseColor[2], 1, flashIntensity),
+            lume.lerp(baseColor[3], 1, flashIntensity),
+        }
+    end
+    love.graphics.setColor(coreColor[1] * 0.15, coreColor[2] * 0.15, coreColor[3] * 0.15, 0.9)
+    love.graphics.polygon("fill", coreVerts)
+
+    -- Thick border - ONLY ALIVE SIDES with per-side flash
+    love.graphics.setLineWidth(4)
+    for i = 1, self.numParts do
+        local part = self.parts[i]
+        if part.alive then
+            local x1, y1, x2, y2 = self:getSideVertices(i)
+
+            -- Determine side color (flash red when hit)
+            local sideColor
+            if part.flashTimer > 0 then
+                local flashIntensity = part.flashTimer / PART_FLASH_DURATION
+                sideColor = {
+                    lume.lerp(baseColor[1] * 0.7, 1, flashIntensity),
+                    lume.lerp(baseColor[2] * 0.7, 0.3, flashIntensity),
+                    lume.lerp(baseColor[3] * 0.7, 0.3, flashIntensity),
+                }
             else
-                -- Tight directional shading: light from above-left
-                -- normY: -1 at top (horns), +1 at bottom (tail)
-                -- normX: -1 at left, +1 at right
-                local normY = pixel.oy / (ps * 5)
-                local normX = pixel.ox / (ps * 4)
-
-                -- Base shading: darker at bottom, brighter at top
-                local shade = -normY * ENEMY_SHADE_CONTRAST
-
-                -- Add slight X-axis shading (light from left)
-                shade = shade - normX * (ENEMY_SHADE_CONTRAST * 0.3)
-
-                -- Top highlight boost
-                if normY < -0.3 then
-                    shade = shade + ENEMY_SHADE_HIGHLIGHT * (1 + normY / 0.3)
-                end
-
-                -- Edge darkening for outer pixels (more defined silhouette)
-                if pixel.layer == "outer" then
-                    shade = shade - 0.08
-                end
-
-                -- Apply shading
-                local lightFactor = 1.0 + shade
-                lightFactor = lume.clamp(lightFactor, 0.5, 1.3)
-
-                drawColor = {
-                    lume.clamp(pixel.color[1] * lightFactor, 0, 1),
-                    lume.clamp(pixel.color[2] * lightFactor, 0, 1),
-                    lume.clamp(pixel.color[3] * lightFactor, 0, 1)
-                }
+                sideColor = {baseColor[1] * 0.7, baseColor[2] * 0.7, baseColor[3] * 0.7}
             end
 
-            love.graphics.setColor(drawColor[1], drawColor[2], drawColor[3], bodyAlpha)
-            love.graphics.rectangle("fill",
-                pixel.ox - ps / 2,
-                pixel.oy - ps / 2,
-                ps, ps)
+            love.graphics.setColor(sideColor[1], sideColor[2], sideColor[3], 1)
+            love.graphics.line(x1, y1, x2, y2)
         end
     end
 
-    -- Draw eyes (brighter, with glow when in fog)
-    for _, pixel in ipairs(self.pixels) do
-        if pixel.alive and pixel.layer == "eye" then
-            -- Eye glow halo when in fog
-            if fogGlow > 0.2 then
-                local glowAlpha = fogGlow * 0.5
-                love.graphics.setColor(EYE_LIGHT_COLOR[1], EYE_LIGHT_COLOR[2], EYE_LIGHT_COLOR[3], glowAlpha)
-                love.graphics.rectangle("fill",
-                    pixel.ox - ps,
-                    pixel.oy - ps,
-                    ps * 2, ps * 2)
-            end
-
-            -- Eye pixel (stays visible even in fog)
-            local eyeAlpha = math.max(bodyAlpha, 0.6 + fogGlow * 0.4)
-            local drawColor = pixel.color
-
-            if self.flashTimer > 0 then
-                drawColor = {1, 1, 1}
-            elseif fogGlow > 0.1 then
-                -- Brighten eyes in fog
-                drawColor = {
-                    math.min(1, pixel.color[1] + fogGlow * 0.3),
-                    math.min(1, pixel.color[2] + fogGlow * 0.1),
-                    math.min(1, pixel.color[3] + fogGlow * 0.1),
-                }
-            end
-
-            love.graphics.setColor(drawColor[1], drawColor[2], drawColor[3], eyeAlpha)
-            love.graphics.rectangle("fill",
-                pixel.ox - ps / 2,
-                pixel.oy - ps / 2,
-                ps, ps)
-        end
-    end
-
-    love.graphics.pop()
+    love.graphics.setLineWidth(1)
 end
 
-function Enemy:containsPoint(px, py)
-    local ps = BLOB_PIXEL_SIZE * self.scale
-    local bounds = 6 * ps
+-- ===================
+-- DYNAMIC IMPACT CALCULATIONS
+-- ===================
 
-    if math.abs(px - self.x) > bounds or math.abs(py - self.y) > bounds then
-        return false
+-- Calculate dynamic knockback force based on bullet velocity and damage
+function Enemy:calculateKnockback(damage, impactVelocity)
+    local velocityRatio = impactVelocity / PROJECTILE_SPEED
+    local damageRatio = damage / PROJECTILE_DAMAGE
+
+    -- Velocity scales linearly, damage with reduced power (velocity-focused)
+    local multiplier = velocityRatio * math.pow(damageRatio, KNOCKBACK_DAMAGE_SCALE)
+    multiplier = math.min(multiplier, KNOCKBACK_MAX_MULTIPLIER)
+
+    return KNOCKBACK_BASE_FORCE * multiplier
+end
+
+-- Calculate dynamic particle intensity based on bullet velocity and damage
+function Enemy:calculateIntensity(damage, impactVelocity)
+    local velocityRatio = impactVelocity / PROJECTILE_SPEED
+    local damageRatio = damage / PROJECTILE_DAMAGE
+
+    -- Velocity-focused blend
+    local intensity = IMPACT_BASE_INTENSITY
+        + (velocityRatio - 1) * IMPACT_VELOCITY_SCALE
+        + (damageRatio - 1) * IMPACT_DAMAGE_SCALE
+
+    return math.max(0.2, math.min(intensity, IMPACT_MAX_INTENSITY))
+end
+
+-- Calculate dynamic explosion velocity based on bullet velocity and overkill damage
+function Enemy:calculateExplosionVelocity(impactVelocity, overkillDamage)
+    -- Overkill bonus (killing blow dealt more damage than remaining HP)
+    local overkillBonus = 0
+    if overkillDamage and overkillDamage > 0 then
+        overkillBonus = math.min(0.5, overkillDamage / self.maxHp) * 50
     end
 
-    for _, pixel in ipairs(self.pixels) do
-        if pixel.alive then
-            -- Transform point to local space
-            local dx = px - self.x
-            local dy = py - self.y
-            local cosA = math.cos(-self.angle)
-            local sinA = math.sin(-self.angle)
-            local localX = dx * cosA - dy * sinA
-            local localY = dx * sinA + dy * cosA
+    local explosionVelocity = EXPLOSION_BASE_VELOCITY
+        + (impactVelocity - PROJECTILE_SPEED) * EXPLOSION_VELOCITY_INHERIT
+        + overkillBonus
 
-            local dist = math.sqrt((localX - pixel.ox) ^ 2 + (localY - pixel.oy) ^ 2)
-            if dist < ps * 1.5 then
-                return true
+    return math.min(math.max(EXPLOSION_BASE_VELOCITY, explosionVelocity), EXPLOSION_MAX_VELOCITY)
+end
+
+-- ===================
+-- PARTS SYSTEM - GEOMETRY HELPERS
+-- ===================
+
+--- Get the world-space vertices of a specific side (line segment)
+function Enemy:getSideVertices(sideIndex)
+    local shape = ENEMY_SHAPES[self.shapeName]
+    local radius = self.size * self.scale
+
+    -- Get the two vertex indices for this side
+    local v1Idx = sideIndex
+    local v2Idx = (sideIndex % #shape) + 1
+
+    local v1 = shape[v1Idx]
+    local v2 = shape[v2Idx]
+
+    -- Apply rotation and position
+    local cos_r = math.cos(self.rotation)
+    local sin_r = math.sin(self.rotation)
+
+    local x1 = self.x + (v1[1] * cos_r - v1[2] * sin_r) * radius
+    local y1 = self.y + (v1[1] * sin_r + v1[2] * cos_r) * radius
+    local x2 = self.x + (v2[1] * cos_r - v2[2] * sin_r) * radius
+    local y2 = self.y + (v2[1] * sin_r + v2[2] * cos_r) * radius
+
+    return x1, y1, x2, y2
+end
+
+--- Get the center point, normal, and length of a side
+function Enemy:getSideInfo(sideIndex)
+    local x1, y1, x2, y2 = self:getSideVertices(sideIndex)
+
+    -- Center point
+    local cx = (x1 + x2) / 2
+    local cy = (y1 + y2) / 2
+
+    -- Length
+    local length = math.sqrt((x2-x1)^2 + (y2-y1)^2)
+
+    -- Outward normal (perpendicular to side, pointing away from center)
+    local dx = x2 - x1
+    local dy = y2 - y1
+    local nx = -dy / length
+    local ny = dx / length
+
+    -- Check if it points away from center
+    local toCenterX = self.x - cx
+    local toCenterY = self.y - cy
+    if nx * toCenterX + ny * toCenterY > 0 then
+        nx, ny = -nx, -ny
+    end
+
+    return cx, cy, nx, ny, length
+end
+
+--- Check if all parts are destroyed
+function Enemy:allPartsDestroyed()
+    return self.alivePartCount <= 0
+end
+
+--- Find the closest alive part to a given point
+--- Returns: sideIndex or nil if no parts alive
+function Enemy:findClosestAlivePart(hitX, hitY)
+    local bestSide = nil
+    local bestDist = math.huge
+
+    for i = 1, self.numParts do
+        if self.parts[i].alive then
+            local cx, cy = self:getSideInfo(i)
+            local dist = math.sqrt((cx - hitX)^2 + (cy - hitY)^2)
+            if dist < bestDist then
+                bestDist = dist
+                bestSide = i
             end
         end
     end
-    return false
+
+    return bestSide
 end
 
-function Enemy:getAliveCount()
-    local count = 0
-    for _, bp in ipairs(self.basePixels) do
-        if bp.alive then
-            count = count + 1
+-- ===================
+-- PARTS SYSTEM - HIT DETECTION
+-- ===================
+
+--- Line segment intersection helper
+local function lineIntersect(x1, y1, x2, y2, x3, y3, x4, y4)
+    local d = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4)
+    if math.abs(d) < 0.0001 then return nil end
+
+    local t = ((x1-x3)*(y3-y4) - (y1-y3)*(x3-x4)) / d
+    local u = -((x1-x2)*(y1-y3) - (y1-y2)*(x1-x3)) / d
+
+    if t >= 0 and t <= 1 and u >= 0 and u <= 1 then
+        return x1 + t*(x2-x1), y1 + t*(y2-y1), t
+    end
+    return nil
+end
+
+--- Find which side (if any) a bullet hits using ray intersection
+--- Returns: sideIndex, hitX, hitY, isGapHit
+function Enemy:findHitSideByRay(bulletX, bulletY, prevX, prevY)
+    local bestSide = nil
+    local bestT = math.huge
+    local hitX, hitY = bulletX, bulletY
+
+    for i = 1, self.numParts do
+        local x1, y1, x2, y2 = self:getSideVertices(i)
+        local ix, iy, t = lineIntersect(prevX, prevY, bulletX, bulletY, x1, y1, x2, y2)
+
+        if ix and t < bestT then
+            bestT = t
+            bestSide = i
+            hitX, hitY = ix, iy
         end
     end
-    return count
+
+    if bestSide then
+        if self.parts[bestSide].alive then
+            return bestSide, hitX, hitY, false
+        else
+            return nil, hitX, hitY, true  -- Gap hit
+        end
+    end
+
+    return nil, bulletX, bulletY, false
 end
 
--- Get indices of pixels adjacent to the given pixel (8-way adjacency)
-function Enemy:getAdjacentPixels(pixelIndex)
-    local target = self.basePixels[pixelIndex]
-    if not target then return {} end
+--- Fallback: find side using direction-based approach
+function Enemy:findHitSideByDirection(bulletX, bulletY, bulletAngle)
+    local bestSide = nil
+    local bestDot = -math.huge
 
-    local adjacent = {}
-    for i, bp in ipairs(self.basePixels) do
-        if i ~= pixelIndex and bp.alive then
-            local dx = math.abs(bp.baseOx - target.baseOx)
-            local dy = math.abs(bp.baseOy - target.baseOy)
-            if dx <= 1 and dy <= 1 then
-                table.insert(adjacent, i)
+    -- Bullet incoming direction (reversed)
+    local bulletDirX = -math.cos(bulletAngle)
+    local bulletDirY = -math.sin(bulletAngle)
+
+    for i = 1, self.numParts do
+        local _, _, nx, ny, _ = self:getSideInfo(i)
+
+        -- Dot product of bullet direction with side's outward normal
+        local dot = bulletDirX * nx + bulletDirY * ny
+
+        if dot > bestDot then
+            bestDot = dot
+            bestSide = i
+        end
+    end
+
+    if bestSide then
+        local cx, cy, _, _, _ = self:getSideInfo(bestSide)
+        if self.parts[bestSide].alive then
+            return bestSide, cx, cy, false
+        else
+            return nil, cx, cy, true  -- Gap hit
+        end
+    end
+
+    return nil, bulletX, bulletY, false
+end
+
+-- ===================
+-- PARTS SYSTEM - DESTRUCTION
+-- ===================
+
+--- Destroy a specific side and return data for spawning a flying part
+function Enemy:destroyPart(sideIndex, bulletAngle, bulletVelocity)
+    if not self.parts[sideIndex] or not self.parts[sideIndex].alive then
+        return nil
+    end
+
+    -- Mark as destroyed
+    self.parts[sideIndex].alive = false
+    self.alivePartCount = self.alivePartCount - 1
+
+    -- Get side geometry
+    local cx, cy, nx, ny, length = self:getSideInfo(sideIndex)
+
+    -- Calculate part velocity (in bullet direction with some spread)
+    local baseSpeed = PART_FLY_SPEED
+    local inheritSpeed = (bulletVelocity or PROJECTILE_SPEED) * PART_FLY_SPEED_INHERIT
+    local totalSpeed = baseSpeed + inheritSpeed
+
+    -- Direction: mostly in bullet direction, slightly outward
+    -- If no bullet angle provided (e.g., laser), use random outward direction
+    local baseAngle = bulletAngle or lume.random(0, math.pi * 2)
+    local spreadAngle = baseAngle + lume.random(-0.3, 0.3)
+    local vx = math.cos(spreadAngle) * totalSpeed
+    local vy = math.sin(spreadAngle) * totalSpeed
+
+    -- Return part data (will be used to create FlyingPart in main.lua)
+    return {
+        x = cx,
+        y = cy,
+        length = length,
+        vx = vx,
+        vy = vy,
+        rotation = math.atan2(ny, nx) + math.pi/2,  -- Align with original orientation
+        color = self.color,
+    }
+end
+
+function Enemy:takeDamage(amount, angle, impactData)
+    if self.dead then return false, {}, false end
+
+    -- Extract impact data
+    local impactVelocity = PROJECTILE_SPEED
+    local bulletX, bulletY = self.x, self.y
+    local prevX, prevY = bulletX, bulletY
+
+    if impactData then
+        impactVelocity = impactData.velocity or PROJECTILE_SPEED
+        bulletX = impactData.bulletX or self.x
+        bulletY = impactData.bulletY or self.y
+        prevX = impactData.prevX or bulletX
+        prevY = impactData.prevY or bulletY
+    end
+
+    -- Find impact point using ray detection (for visual effects and proximity)
+    local hitSide, hitX, hitY, isGapHit = self:findHitSideByRay(bulletX, bulletY, prevX, prevY)
+
+    -- If no ray intersection found, fall back to direction-based detection
+    if not hitSide and not isGapHit then
+        local _
+        _, hitX, hitY, isGapHit = self:findHitSideByDirection(bulletX, bulletY, angle or 0)
+    end
+
+    -- Apply damage bonus for gap hits
+    local finalDamage = amount
+    if isGapHit then
+        finalDamage = amount * GAP_DAMAGE_BONUS
+        self.coreFlashTimer = CORE_FLASH_DURATION
+    end
+
+    -- Calculate HP thresholds to determine how many parts to break
+    -- Each integer HP above 1 corresponds to a part
+    -- HP thresholds: maxHp, maxHp-1, ..., 2 (HP=1 is the core with no part)
+    local oldHp = self.hp
+    local newHp = oldHp - finalDamage
+
+    -- Count how many HP thresholds we cross (each integer above 1)
+    local partsToBreak = 0
+    local thresholdStart = math.floor(oldHp)
+    local thresholdEnd = math.max(1, math.ceil(newHp))
+
+    for threshold = thresholdStart, thresholdEnd + 1, -1 do
+        if threshold > 1 and threshold > newHp and threshold <= oldHp then
+            partsToBreak = partsToBreak + 1
+        end
+    end
+
+    -- Apply damage to HP
+    self.hp = newHp
+
+    -- Break the required number of parts, selecting closest to impact point
+    local flyingPartsData = {}
+    for _ = 1, partsToBreak do
+        local closestPart = self:findClosestAlivePart(hitX, hitY)
+        if closestPart then
+            self.parts[closestPart].flashTimer = PART_FLASH_DURATION
+            local partData = self:destroyPart(closestPart, angle, impactVelocity)
+            if partData then
+                table.insert(flyingPartsData, partData)
             end
         end
     end
-    return adjacent
-end
 
--- Select an organic-shaped group of pixels using region growing
-function Enemy:selectOrganicPixelGroup(seedIndex, targetCount)
-    local selected = {}
-    local selectedCount = 1
-    local candidates = {}
+    -- Impact stagger: spin increase and displacement when parts break off
+    if partsToBreak > 0 then
+        -- Add rotation speed (cumulative, keeps sign but increases magnitude)
+        local spinIncrease = lume.random(IMPACT_SPIN_INCREASE_MIN, IMPACT_SPIN_INCREASE_MAX) * partsToBreak
+        if self.rotationSpeed >= 0 then
+            self.rotationSpeed = self.rotationSpeed + spinIncrease
+        else
+            self.rotationSpeed = self.rotationSpeed - spinIncrease
+        end
 
-    -- Start with seed
-    selected[seedIndex] = true
-
-    -- Add seed's neighbors as initial candidates
-    for _, adjIdx in ipairs(self:getAdjacentPixels(seedIndex)) do
-        if not selected[adjIdx] then
-            -- Score: layer priority + adjacency bonus + randomness
-            local bp = self.basePixels[adjIdx]
-            local score = (7 - bp.layerOrder) * 10  -- Outer layers first
-            score = score + CHUNK_NEIGHBOR_WEIGHT * 20  -- Adjacent to selected
-            score = score + lume.random(0, 30 * CHUNK_SHAPE_IRREGULARITY)
-            candidates[adjIdx] = score
+        -- Perpendicular displacement (left or right of bullet path)
+        if angle then
+            local perpAngle = angle + (lume.randomchoice({-1, 1}) * math.pi / 2)
+            self.x = self.x + math.cos(perpAngle) * IMPACT_DISPLACEMENT * partsToBreak
+            self.y = self.y + math.sin(perpAngle) * IMPACT_DISPLACEMENT * partsToBreak
         end
     end
 
-    -- Grow region until we reach target count
-    while selectedCount < targetCount do
-        -- Find best candidate
-        local bestIdx, bestScore = nil, -1
-        for idx, score in pairs(candidates) do
-            if score > bestScore then
-                bestIdx = idx
-                bestScore = score
-            end
-        end
+    -- Dynamic knockback based on velocity and damage
+    if angle then
+        local knockbackForce = self:calculateKnockback(finalDamage, impactVelocity)
+        self.knockbackX = math.cos(angle) * knockbackForce
+        self.knockbackY = math.sin(angle) * knockbackForce
 
-        if not bestIdx then break end  -- No more candidates
-
-        -- Add best to selected
-        selected[bestIdx] = true
-        selectedCount = selectedCount + 1
-        candidates[bestIdx] = nil
-
-        -- Add new adjacent candidates
-        for _, adjIdx in ipairs(self:getAdjacentPixels(bestIdx)) do
-            if not selected[adjIdx] and not candidates[adjIdx] then
-                local bp = self.basePixels[adjIdx]
-                -- Count how many selected neighbors
-                local adjCount = 0
-                for _, checkAdj in ipairs(self:getAdjacentPixels(adjIdx)) do
-                    if selected[checkAdj] then adjCount = adjCount + 1 end
-                end
-
-                local score = (7 - bp.layerOrder) * 10
-                score = score + adjCount * CHUNK_NEIGHBOR_WEIGHT * 20
-                score = score + lume.random(0, 30 * CHUNK_SHAPE_IRREGULARITY)
-                candidates[adjIdx] = score
-            end
-        end
+        -- Green impact burst at hit location
+        DebrisManager:spawnImpactBurst(hitX, hitY, angle)
     end
 
-    return selected
-end
-
--- Spawn a chunk from pending limb pixels
-function Enemy:spawnLimbFromPending(bulletAngle)
-    if #self.pendingLimbPixels < 1 then return end
-
-    local ps = BLOB_PIXEL_SIZE * self.scale
-    local baseAngle = bulletAngle or 0
-
-    -- Calculate center of pending pixels
-    local centerX, centerY = 0, 0
-    for _, p in ipairs(self.pendingLimbPixels) do
-        centerX = centerX + p.worldX
-        centerY = centerY + p.worldY
+    -- Spawn blood particles (shape-matching)
+    if angle then
+        local intensity = self:calculateIntensity(finalDamage, impactVelocity)
+        DebrisManager:spawnBloodParticles(hitX, hitY, angle, self.shapeName, self.color, intensity)
     end
-    centerX = centerX / #self.pendingLimbPixels
-    centerY = centerY / #self.pendingLimbPixels
 
-    -- Convert to offsets from center
-    local pixels = {}
-    for _, p in ipairs(self.pendingLimbPixels) do
-        table.insert(pixels, {
-            ox = p.worldX - centerX,
-            oy = p.worldY - centerY,
-            color = p.color
+    -- Trigger feedback (screen shake)
+    if finalDamage >= 0.5 then
+        Feedback:trigger("small_hit", {
+            damage_dealt = finalDamage,
+            current_hp = self.hp,
+            max_hp = self.maxHp,
+            impact_angle = angle,
+            impact_x = hitX,
+            impact_y = hitY,
         })
     end
 
-    -- Spawn chunk flying in bullet direction
-    local angle = baseAngle + lume.random(-0.3, 0.3)
-    local speed = lume.random(PROJECTILE_SPEED * LIMB_VELOCITY_RATIO * 0.8, PROJECTILE_SPEED * LIMB_VELOCITY_RATIO * 1.2)
-
-    spawnChunk({
-        x = centerX,
-        y = centerY,
-        vx = math.cos(angle) * speed,
-        vy = math.sin(angle) * speed,
-        pixels = pixels,
-        size = ps
-    })
-
-    -- Clear pending
-    self.pendingLimbPixels = {}
-end
-
--- Force spawn any pending pixels (called before death)
-function Enemy:flushPendingLimb(bulletAngle)
-    if #self.pendingLimbPixels > 0 then
-        self:spawnLimbFromPending(bulletAngle)
-    end
-end
-
--- Eject pixels belonging to layers associated with a health threshold
--- Called when HP crosses a threshold (e.g., 75%, 50%, 25%)
-function Enemy:ejectLimbAtThreshold(threshold, bulletAngle)
-    local layers = MonsterSpec.getLayersForThreshold(threshold)
-    if not layers or #layers == 0 then return end
-
-    local ps = BLOB_PIXEL_SIZE * self.scale
-    local frameData = DEVIL_FRAMES[self.animFrame]
-    local cosA = math.cos(self.angle)
-    local sinA = math.sin(self.angle)
-
-    -- Collect pixels belonging to the threshold's layers
-    local limbPixels = {}
-    local centerX, centerY = 0, 0
-    local pixelCount = 0
-
-    for i, bp in ipairs(self.basePixels) do
-        if bp.alive and frameData[i] then
-            -- Check if this pixel's layer matches any in the threshold
-            for _, layer in ipairs(layers) do
-                if bp.layer == layer then
-                    bp.alive = false  -- Mark as destroyed
-
-                    local ox = frameData[i][1] * ps
-                    local oy = frameData[i][2] * ps
-                    local worldX = self.x + ox * cosA - oy * sinA
-                    local worldY = self.y + ox * sinA + oy * cosA
-
-                    table.insert(limbPixels, {
-                        worldX = worldX,
-                        worldY = worldY,
-                        color = {bp.color[1], bp.color[2], bp.color[3]}
-                    })
-                    centerX = centerX + worldX
-                    centerY = centerY + worldY
-                    pixelCount = pixelCount + 1
-                    break
-                end
-            end
-        end
-    end
-
-    -- Spawn the limb chunk if we have enough pixels
-    if pixelCount > 0 then
-        centerX = centerX / pixelCount
-        centerY = centerY / pixelCount
-
-        -- Convert to offsets from center
-        local pixels = {}
-        for _, lp in ipairs(limbPixels) do
-            table.insert(pixels, {
-                ox = lp.worldX - centerX,
-                oy = lp.worldY - centerY,
-                color = lp.color
-            })
-        end
-
-        -- Use DebrisManager if available
-        if DebrisManager and DebrisManager.spawnLimb then
-            DebrisManager:spawnLimb(centerX, centerY, bulletAngle, pixels, PROJECTILE_SPEED * LIMB_VELOCITY_RATIO)
-        else
-            -- Fallback: spawn directly
-            local angle = bulletAngle + lume.random(-0.3, 0.3)
-            local speed = lume.random(PROJECTILE_SPEED * LIMB_VELOCITY_RATIO * 0.8, PROJECTILE_SPEED * LIMB_VELOCITY_RATIO * 1.2)
-            spawnChunk({
-                x = centerX,
-                y = centerY,
-                vx = math.cos(angle) * speed,
-                vy = math.sin(angle) * speed,
-                pixels = pixels,
-                size = ps
-            })
-        end
-
-        -- Regenerate pixels after limb ejection
-        self:generatePixels()
-    end
-end
-
--- Force dismemberment for debugging - ejects limb at next threshold
-function Enemy:forceDismember()
-    -- Find the next threshold that hasn't been triggered
-    for _, threshold in ipairs(DISMEMBER_THRESHOLDS) do
-        if not self.brokenParts[threshold] then
-            self.brokenParts[threshold] = true
-            -- Use a random angle for the ejection
-            local randomAngle = lume.random(0, math.pi * 2)
-            self:ejectLimbAtThreshold(threshold, randomAngle)
-            Feedback:trigger("limb_break")
-            return true
-        end
-    end
-    return false  -- All thresholds already triggered
-end
-
-function Enemy:takeDamage(hitX, hitY, amount, bulletAngle)
-    self.flashTimer = BLOB_FLASH_DURATION
-
-    -- Apply knockback in bullet direction
-    if bulletAngle then
-        self:applyKnockback(bulletAngle, KNOCKBACK_FORCE)
-    end
-
-    -- Track HP percentage before damage
-    local oldHpPercent = self.lastHpPercent
-
-    -- Reduce HP
-    self.hp = self.hp - amount
-    local newHpPercent = math.max(0, self.hp / self.maxHp)
-    self.lastHpPercent = newHpPercent
-
-    -- Build damage context for feedback
-    local damageContext = {
-        damage_dealt = amount,
-        current_hp = self.hp,
-        max_hp = self.maxHp,
-        impact_angle = bulletAngle or 0,
-        impact_x = hitX,
-        impact_y = hitY,
-        enemy = self
-    }
-
-    -- Death check BEFORE pixel destruction
+    -- Check death condition: HP depleted (core destroyed)
     if self.hp <= 0 then
-        -- Flush any pending limb pixels before death
-        self:flushPendingLimb(bulletAngle)
-        self:die(bulletAngle or 0)
-        return amount, true
+        local overkill = math.abs(math.min(0, self.hp))
+        self:die(angle, {
+            velocity = impactVelocity,
+            overkillDamage = overkill,
+        })
+        return true, flyingPartsData, isGapHit
     end
 
-    -- Check for health threshold crossings (limb breaks)
-    local thresholdCrossed = Feedback:checkThresholdCrossed(oldHpPercent, newHpPercent)
-    if thresholdCrossed and not self.brokenParts[thresholdCrossed] then
-        self.brokenParts[thresholdCrossed] = true
-        self:ejectLimbAtThreshold(thresholdCrossed, bulletAngle or 0)
-        Feedback:trigger("limb_break", damageContext)
-    else
-        -- Use damage-aware preset selection
-        local preset = Feedback:getPresetForDamage(damageContext)
-        Feedback:trigger(preset, damageContext)
-    end
-
-    -- Calculate how many pixels should remain based on HP percentage
-    local hpPercent = newHpPercent
-    local targetPixels = math.ceil(self.totalPixelCount * hpPercent)
-    local currentPixels = self:getAliveCount()
-    local pixelsToDestroy = currentPixels - targetPixels
-
-    local ps = BLOB_PIXEL_SIZE * self.scale
-    local frameData = DEVIL_FRAMES[self.animFrame]
-    local cosA = math.cos(self.angle)
-    local sinA = math.sin(self.angle)
-
-    -- Spawn blood spray via DebrisManager if available, else fallback
-    local baseAngle = bulletAngle or 0
-    if DebrisManager and DebrisManager.spawnImpactEffects then
-        DebrisManager:spawnImpactEffects(damageContext)
-    else
-        -- Fallback: spawn blood spray particles directly
-        for _ = 1, 6 do
-            local angle = baseAngle + lume.random(-0.25, 0.25)
-            local speed = lume.random(300, 450)
-            spawnParticle({
-                x = hitX,
-                y = hitY,
-                vx = math.cos(angle) * speed,
-                vy = math.sin(angle) * speed,
-                color = {0.6, 0.08, 0.08},
-                size = lume.random(1, 3),
-                lifetime = lume.random(0.15, 0.3)
-            })
-        end
-    end
-
-    -- Only destroy if we need to remove pixels
-    if pixelsToDestroy > 0 then
-        -- Find seed pixel (closest to hit point, preferring outer layers)
-        local seedCandidates = {}
-        for i, bp in ipairs(self.basePixels) do
-            if bp.alive and bp.layerOrder <= 4 then  -- Outer/inner layers
-                if frameData[i] then
-                    local ox = frameData[i][1] * ps
-                    local oy = frameData[i][2] * ps
-                    local worldX = self.x + ox * cosA - oy * sinA
-                    local worldY = self.y + ox * sinA + oy * cosA
-                    local dist = math.sqrt((worldX - hitX)^2 + (worldY - hitY)^2)
-                    table.insert(seedCandidates, {index = i, dist = dist})
-                end
-            end
-        end
-
-        -- Pick closest pixel as seed
-        table.sort(seedCandidates, function(a, b) return a.dist < b.dist end)
-        local seedIndex = seedCandidates[1] and seedCandidates[1].index
-
-        if seedIndex then
-            -- Select organic group of pixels to destroy
-            local selected = self:selectOrganicPixelGroup(seedIndex, pixelsToDestroy)
-
-            -- Destroy selected pixels and add to pending limb
-            for idx, _ in pairs(selected) do
-                local bp = self.basePixels[idx]
-                bp.alive = false
-
-                if frameData[idx] then
-                    local ox = frameData[idx][1] * ps
-                    local oy = frameData[idx][2] * ps
-                    local worldX = self.x + ox * cosA - oy * sinA
-                    local worldY = self.y + ox * sinA + oy * cosA
-
-                    table.insert(self.pendingLimbPixels, {
-                        worldX = worldX,
-                        worldY = worldY,
-                        color = {bp.color[1], bp.color[2], bp.color[3]}
-                    })
-                end
-            end
-
-            -- Check if we have enough for a minimum-sized chunk
-            if #self.pendingLimbPixels >= MIN_CHUNK_PIXELS then
-                self:spawnLimbFromPending(bulletAngle)
-            end
-
-            -- Regenerate pixels after damage
-            self:generatePixels()
-        end
-    end
-
-    return amount, false
+    return false, flyingPartsData, isGapHit
 end
 
-function Enemy:die(bulletAngle)
+function Enemy:die(angle, impactData)
     self.dead = true
 
-    -- Remove lights from Lighting system
-    self:removeEyeLights()
-    self:removeBodyGlow()
+    angle = angle or lume.random(0, math.pi * 2)
 
-    local ps = BLOB_PIXEL_SIZE * self.scale
-
-    -- Build context for total collapse feedback
-    local deathContext = {
-        damage_dealt = self.maxHp,  -- Assume lethal damage
-        current_hp = 0,
-        max_hp = self.maxHp,
-        impact_angle = bulletAngle,
-        impact_x = self.x,
-        impact_y = self.y,
-        enemy = self
-    }
-
-    -- Screen shake + hit-stop via Feedback system (total_collapse for death)
-    Feedback:trigger("total_collapse", deathContext)
-
-    local frameData = DEVIL_FRAMES[self.animFrame]
-    local cosA = math.cos(self.angle)
-    local sinA = math.sin(self.angle)
-
-    -- Spawn blood spray (bigger burst on death)
-    for i = 1, 10 do
-        local angle = bulletAngle + lume.random(-0.4, 0.4)
-        local speed = lume.random(350, 550)
-        spawnParticle({
-            x = self.x,
-            y = self.y,
-            vx = math.cos(angle) * speed,
-            vy = math.sin(angle) * speed,
-            color = {0.6, 0.08, 0.08},
-            size = lume.random(2, 4),
-            lifetime = lume.random(0.2, 0.35)
-        })
+    -- Calculate dynamic explosion velocity
+    local impactVelocity = PROJECTILE_SPEED
+    local overkillDamage = 0
+    if impactData then
+        impactVelocity = impactData.velocity or PROJECTILE_SPEED
+        overkillDamage = impactData.overkillDamage or 0
     end
 
-    -- Collect all alive pixels with world positions
-    local allPixels = {}
-    for i, bp in ipairs(self.basePixels) do
-        if bp.alive and frameData[i] then
-            local ox = frameData[i][1] * ps
-            local oy = frameData[i][2] * ps
-            local worldX = self.x + ox * cosA - oy * sinA
-            local worldY = self.y + ox * sinA + oy * cosA
-
-            table.insert(allPixels, {
-                worldX = worldX,
-                worldY = worldY,
-                localY = frameData[i][2],  -- for splitting into limbs
-                color = {bp.color[1], bp.color[2], bp.color[3]}
-            })
-        end
-    end
-
-    -- Split pixels into organic limb groups (respecting minimum size)
-    if #allPixels > 0 then
-        -- Pre-compute random offsets for consistent sorting
-        for i, p in ipairs(allPixels) do
-            p.sortY = p.localY + lume.random(-0.5, 0.5) * CHUNK_SHAPE_IRREGULARITY
-        end
-        -- Sort by local Y with some randomness for organic cuts
-        table.sort(allPixels, function(a, b)
-            return a.sortY < b.sortY
-        end)
-
-        -- Determine number of limb chunks based on MIN_CHUNK_PIXELS
-        local numLimbs = math.floor(#allPixels / MIN_CHUNK_PIXELS)
-        numLimbs = math.max(1, math.min(4, numLimbs))  -- 1-4 chunks
-        local pixelsPerLimb = math.ceil(#allPixels / numLimbs)
-
-        for limbIndex = 1, numLimbs do
-            local startIdx = (limbIndex - 1) * pixelsPerLimb + 1
-            local endIdx = math.min(limbIndex * pixelsPerLimb, #allPixels)
-
-            -- Add randomness to group boundaries for organic shapes
-            if limbIndex < numLimbs and endIdx < #allPixels then
-                local shift = math.floor(lume.random(-2, 2) * CHUNK_SHAPE_IRREGULARITY)
-                endIdx = lume.clamp(endIdx + shift, startIdx + MIN_CHUNK_PIXELS - 1, #allPixels)
-            end
-
-            if startIdx <= #allPixels then
-                -- Collect pixels for this limb
-                local limbPixels = {}
-                local centerX, centerY = 0, 0
-
-                for i = startIdx, endIdx do
-                    local p = allPixels[i]
-                    if p then
-                        table.insert(limbPixels, p)
-                        centerX = centerX + p.worldX
-                        centerY = centerY + p.worldY
-                    end
-                end
-
-                if #limbPixels > 0 then
-                    centerX = centerX / #limbPixels
-                    centerY = centerY / #limbPixels
-
-                    -- Convert to offset from center
-                    local pixels = {}
-                    for _, lp in ipairs(limbPixels) do
-                        table.insert(pixels, {
-                            ox = lp.worldX - centerX,
-                            oy = lp.worldY - centerY,
-                            color = lp.color
-                        })
-                    end
-
-                    -- Spawn limb with spread in bullet direction
-                    local angle = bulletAngle + lume.random(-0.8, 0.8)
-                    local speed = lume.random(PROJECTILE_SPEED * DEATH_BURST_RATIO * 0.6, PROJECTILE_SPEED * DEATH_BURST_RATIO * 1.0)
-
-                    spawnChunk({
-                        x = centerX,
-                        y = centerY,
-                        vx = math.cos(angle) * speed,
-                        vy = math.sin(angle) * speed,
-                        pixels = pixels,
-                        size = ps
-                    })
-                end
-            end
-        end
-    end
+    local explosionVelocity = self:calculateExplosionVelocity(impactVelocity, overkillDamage)
+    DebrisManager:spawnExplosionBurst(self.x, self.y, angle, self.shapeName, self.color, explosionVelocity)
 end
 
-function Enemy:getBounds()
-    local ps = BLOB_PIXEL_SIZE * self.scale
-    local halfWidth = 5 * ps
-    local halfHeight = 6 * ps
-    return self.x - halfWidth, self.y - halfHeight, halfWidth * 2, halfHeight * 2
+function Enemy:checkTowerCollision()
+    if self.dead then return false end
+
+    local dx = self.x - tower.x
+    local dy = self.y - tower.y
+    local dist = math.sqrt(dx * dx + dy * dy)
+
+    local collisionDist = 35 + self.size * self.scale * 0.5
+
+    return dist < collisionDist
 end
 
 function Enemy:distanceTo(x, y)
-    return math.sqrt((self.x - x) ^ 2 + (self.y - y) ^ 2)
+    local dx = self.x - x
+    local dy = self.y - y
+    return math.sqrt(dx * dx + dy * dy)
 end
 
 return Enemy

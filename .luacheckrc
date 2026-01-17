@@ -46,6 +46,7 @@ globals = {
 
     -- Global functions
     "toggleFullscreen",
+    "registerEventListeners",
 
     -- Global settings state
     "isFullscreen",
@@ -523,6 +524,15 @@ globals = {
 
     -- Play transition (Skill Tree -> Gameplay)
     "PLAY_TRANSITION_DURATION",
+
+    -- New systems (architecture refactoring)
+    "EventBus",
+    "EntityManager",
+    "LaserSystem",
+    "PlasmaSystem",
+    "GameOverSystem",
+    "CollisionManager",
+    "AbilityManager",
 
     -- Dash ability
     "DASH_DISTANCE",

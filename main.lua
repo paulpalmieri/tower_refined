@@ -46,6 +46,15 @@ Roguelite = require "src.roguelite"
 LevelUpUI = require "src.roguelite.levelup_ui"
 DamageAura = require "src.entities.damage_aura"
 
+-- New systems (architecture refactoring)
+EventBus = require "src.event_bus"
+EntityManager = require "src.entity_manager"
+LaserSystem = require "src.systems.laser_system"
+PlasmaSystem = require "src.systems.plasma_system"
+GameOverSystem = require "src.systems.gameover_system"
+CollisionManager = require "src.collision_manager"
+AbilityManager = require "src.ability_manager"
+
 -- ===================
 -- GAME STATE
 -- ===================
@@ -130,33 +139,6 @@ missiles = {}             -- Homing missiles in flight
 enemyProjectiles = {}     -- Enemy-fired projectiles (square bolts, mini-hexes)
 aoeWarnings = {}          -- Pentagon telegraphed danger zones
 damageAura = nil          -- Damage aura entity (from roguelite upgrade)
-
--- Laser beam system
-local laser = {
-    state = "ready",      -- "ready", "deploying", "charging", "firing", "retracting"
-    timer = 0,            -- Time in current state
-    cannonExtend = 0,     -- 0-1, how far side cannons extended
-    chargeGlow = 0,       -- 0-1, charge intensity
-    damageAccum = 0,      -- Accumulated damage time for DPS tick
-    hitEnemies = {},      -- Track which enemies were hit this frame for damage numbers
-}
-
--- Plasma missile system
-local plasma = {
-    state = "ready",      -- "ready", "charging", "cooldown"
-    timer = 0,            -- Time in current state
-    chargeProgress = 0,   -- 0-1, how far charge has progressed (back to front)
-}
-
--- Game over animation state
-local gameOverAnim = {
-    phase = "none",       -- "none", "fade_in", "title_hold", "reveal", "complete"
-    timer = 0,
-    titleAlpha = 0,
-    titleY = CENTER_Y,
-    statRevealProgress = 0,
-    overlayAlpha = 0,
-}
 
 -- Passive stats (multipliers, modified by skill tree)
 local stats = {
@@ -425,13 +407,9 @@ end
 -- ACTIVE SKILL: LASER BEAM
 -- ===================
 local function activateLaser()
-    if laser.state ~= "ready" then return end
-    laser.state = "deploying"
-    laser.timer = 0
-    laser.cannonExtend = 0
-    laser.chargeGlow = 0
-    laser.damageAccum = 0
-    laser.hitEnemies = {}
+    if not LaserSystem:canActivate() then return end
+    if PlasmaSystem:isActive() then return end  -- Can't use during plasma
+    LaserSystem:activate()
 end
 
 -- ===================
@@ -527,398 +505,13 @@ local function drawDashChargeUI()
     love.graphics.setLineWidth(1)
 end
 
--- Check if a point is inside the laser beam
-local function pointInLaserBeam(px, py, beamStartX, beamStartY, beamAngle, beamLength, beamWidth)
-    -- Transform point to beam-local coordinates
-    local dx = px - beamStartX
-    local dy = py - beamStartY
-
-    -- Rotate to align with beam (beam points along positive X in local space)
-    local cosA = math.cos(-beamAngle)
-    local sinA = math.sin(-beamAngle)
-    local localX = dx * cosA - dy * sinA
-    local localY = dx * sinA + dy * cosA
-
-    -- Check if within beam bounds
-    return localX >= 0 and localX <= beamLength and math.abs(localY) <= beamWidth / 2
-end
-
-local function updateLaser(dt, gameDt)
-    -- Calculate scaled times based on charge speed upgrade
-    local deployTime = LASER_DEPLOY_TIME / stats.laserChargeSpeed
-    local chargeTime = LASER_CHARGE_TIME / stats.laserChargeSpeed
-    local fireTime = LASER_FIRE_TIME * stats.laserDuration
-    local beamWidth = LASER_BEAM_WIDTH * stats.laserWidth
-
-    if laser.state == "ready" then
-        return
-    elseif laser.state == "deploying" then
-        laser.timer = laser.timer + dt
-        laser.cannonExtend = math.min(1, laser.timer / deployTime)
-        if laser.timer >= deployTime then
-            laser.state = "charging"
-            laser.timer = 0
-        end
-    elseif laser.state == "charging" then
-        laser.timer = laser.timer + dt
-        laser.chargeGlow = math.min(1, laser.timer / chargeTime)
-        -- Subtle shake during charge
-        if laser.timer > chargeTime * 0.5 then
-            Feedback:trigger("laser_charge")
-        end
-        if laser.timer >= chargeTime then
-            laser.state = "firing"
-            laser.timer = 0
-            laser.damageAccum = 0
-            Sounds.playLaser()
-        end
-    elseif laser.state == "firing" then
-        laser.timer = laser.timer + dt
-
-        -- Continuous screen shake while firing
-        Feedback:trigger("laser_continuous")
-
-        -- Get beam geometry
-        local muzzleX, muzzleY = tower:getMuzzleTip()
-        local beamAngle = tower.angle
-
-        -- Damage enemies in beam (uses raw dt so damage always applies)
-        laser.damageAccum = laser.damageAccum + dt
-        local damageThisFrame = LASER_DAMAGE_PER_SEC * stats.laserDamage * dt
-
-        for _, enemy in ipairs(enemies) do
-            if not enemy.dead then
-                if pointInLaserBeam(enemy.x, enemy.y, muzzleX, muzzleY, beamAngle, LASER_BEAM_LENGTH, beamWidth) then
-                    -- Pass nil angle to disable knockback
-                    local killed, flyingPartsData = enemy:takeDamage(damageThisFrame, nil)
-
-                    -- Spawn flying parts for any destroyed sides
-                    for _, partData in ipairs(flyingPartsData) do
-                        table.insert(flyingParts, FlyingPart(partData))
-                    end
-
-                    -- Show damage number periodically (every 0.5s per enemy)
-                    if not laser.hitEnemies[enemy] then
-                        laser.hitEnemies[enemy] = 0
-                    end
-                    laser.hitEnemies[enemy] = laser.hitEnemies[enemy] + dt
-                    if laser.hitEnemies[enemy] >= 0.5 then
-                        spawnDamageNumber(enemy.x, enemy.y - 10, math.floor(LASER_DAMAGE_PER_SEC * stats.laserDamage * 0.5))
-                        laser.hitEnemies[enemy] = 0
-                    end
-
-                    if killed then
-                        totalKills = totalKills + 1
-                        local goldAmount = math.floor(GOLD_PER_KILL * stats.goldMultiplier)
-                        gold = gold + goldAmount
-                        totalGold = totalGold + goldAmount
-                        spawnDamageNumber(enemy.x, enemy.y - 20, goldAmount, "gold")
-                        -- Spawn shard cluster (one shard per HP)
-                        spawnShardCluster(enemy.x, enemy.y, enemy.shapeName, enemy.maxHp)
-                    end
-                end
-            end
-        end
-
-        -- Spawn beam particles
-        if lume.random() < 0.3 then
-            local dist = lume.random(50, LASER_BEAM_LENGTH * 0.8)
-            local px = muzzleX + math.cos(beamAngle) * dist
-            local py = muzzleY + math.sin(beamAngle) * dist
-            local perpAngle = beamAngle + (lume.random() > 0.5 and math.pi/2 or -math.pi/2)
-            spawnParticle({
-                x = px + lume.random(-5, 5),
-                y = py + lume.random(-5, 5),
-                vx = math.cos(perpAngle) * lume.random(30, 80),
-                vy = math.sin(perpAngle) * lume.random(30, 80),
-                color = {lume.random(0.8, 1), 1, lume.random(0.8, 1)},
-                size = lume.random(2, 4),
-                lifetime = lume.random(0.2, 0.4),
-                gravity = 0,
-            })
-        end
-
-        if laser.timer >= fireTime then
-            laser.state = "retracting"
-            laser.timer = 0
-            Sounds.stopLaser()
-        end
-    elseif laser.state == "retracting" then
-        laser.timer = laser.timer + dt
-        laser.cannonExtend = math.max(0, 1 - laser.timer / LASER_RETRACT_TIME)
-        laser.chargeGlow = math.max(0, 1 - laser.timer / LASER_RETRACT_TIME)
-        if laser.timer >= LASER_RETRACT_TIME then
-            laser.state = "ready"
-            laser.timer = 0
-            laser.cannonExtend = 0
-            laser.chargeGlow = 0
-            laser.hitEnemies = {}
-        end
-    end
-end
-
-local function drawLaserBeam()
-    if laser.state ~= "firing" then return end
-
-    local beamWidth = LASER_BEAM_WIDTH * stats.laserWidth
-    local muzzleX, muzzleY = tower:getMuzzleTip()
-    local beamAngle = tower.angle
-    local endX = muzzleX + math.cos(beamAngle) * LASER_BEAM_LENGTH
-    local endY = muzzleY + math.sin(beamAngle) * LASER_BEAM_LENGTH
-
-    -- Animated wave offset for beam edges
-    local time = love.timer.getTime() * 10
-    local waveAmp = 3
-
-    -- Outer glow (widest, most transparent)
-    love.graphics.setColor(0, 0.8, 0.2, 0.15)
-    love.graphics.setLineWidth(beamWidth * 2)
-    love.graphics.line(muzzleX, muzzleY, endX, endY)
-
-    -- Middle glow
-    love.graphics.setColor(0, 1, 0.3, 0.3)
-    love.graphics.setLineWidth(beamWidth * 1.2)
-    love.graphics.line(muzzleX, muzzleY, endX, endY)
-
-    -- Inner beam (intense green)
-    love.graphics.setColor(0.3, 1, 0.5, 0.7)
-    love.graphics.setLineWidth(beamWidth * 0.6)
-    love.graphics.line(muzzleX, muzzleY, endX, endY)
-
-    -- Core (white hot center)
-    love.graphics.setColor(0.9, 1, 0.95, 0.9)
-    love.graphics.setLineWidth(beamWidth * 0.2)
-    love.graphics.line(muzzleX, muzzleY, endX, endY)
-
-    -- Draw wavy edge particles along beam
-    local segments = 20
-    for i = 0, segments do
-        local t = i / segments
-        local dist = LASER_BEAM_LENGTH * t
-        local px = muzzleX + math.cos(beamAngle) * dist
-        local py = muzzleY + math.sin(beamAngle) * dist
-
-        -- Wavy offset perpendicular to beam
-        local perpAngle = beamAngle + math.pi / 2
-        local wave = math.sin(time + i * 0.5) * waveAmp
-        local edgeX = px + math.cos(perpAngle) * (beamWidth * 0.4 + wave)
-        local edgeY = py + math.sin(perpAngle) * (beamWidth * 0.4 + wave)
-
-        love.graphics.setColor(0.7, 1, 0.8, 0.6)
-        love.graphics.circle("fill", edgeX, edgeY, 2)
-
-        -- Other side
-        edgeX = px - math.cos(perpAngle) * (beamWidth * 0.4 + wave)
-        edgeY = py - math.sin(perpAngle) * (beamWidth * 0.4 + wave)
-        love.graphics.circle("fill", edgeX, edgeY, 2)
-    end
-
-    love.graphics.setLineWidth(1)
-end
-
--- Draw side cannons on turret (called from turret or here)
-local function drawLaserCannons()
-    if laser.cannonExtend <= 0 and laser.chargeGlow <= 0 then return end
-
-    local flinchX = tower.damageFlinch * math.cos(tower.angle + math.pi) * 2
-    local flinchY = tower.damageFlinch * math.sin(tower.angle + math.pi) * 2
-    local drawX = tower.x + flinchX
-    local drawY = tower.y + flinchY
-
-    love.graphics.push()
-    love.graphics.translate(drawX, drawY)
-    love.graphics.rotate(tower.angle)
-
-    -- Match main barrel dimensions
-    local cannonLength = 50  -- Same as BARREL_LENGTH
-    local cannonWidth = 14   -- Same as BARREL_WIDTH
-    local barrelBack = 15    -- Same as BARREL_BACK
-    local gap = 2            -- Small gap between barrels
-
-    -- Final position: right next to main barrel with gap
-    local finalYOffset = cannonWidth / 2 + gap + cannonWidth / 2  -- = 16
-
-    -- Animation: slide in from outside during deploying
-    local startYOffset = 60  -- Start far away
-    local currentYOffset = startYOffset - (startYOffset - finalYOffset) * laser.cannonExtend
-
-    -- Side cannon positions (perpendicular to barrel)
-    for side = -1, 1, 2 do
-        local yOffset = side * currentYOffset
-
-        -- Cannon fill (green)
-        love.graphics.setColor(0, 1, 0, 1)
-        love.graphics.rectangle("fill", -barrelBack, yOffset - cannonWidth/2, cannonLength + barrelBack, cannonWidth)
-
-        -- Cannon border
-        love.graphics.setColor(0, 1, 0, 0.6)
-        love.graphics.setLineWidth(3)
-        love.graphics.rectangle("line", -barrelBack, yOffset - cannonWidth/2, cannonLength + barrelBack, cannonWidth)
-    end
-
-    -- White glow on all 3 barrels during charging/firing
-    if laser.chargeGlow > 0 then
-        local glowIntensity = laser.chargeGlow
-
-        -- Glow on side cannons
-        for side = -1, 1, 2 do
-            local yOffset = side * currentYOffset
-            love.graphics.setColor(1, 1, 1, glowIntensity * 0.7)
-            love.graphics.rectangle("fill", -barrelBack, yOffset - cannonWidth/2, cannonLength + barrelBack, cannonWidth)
-        end
-
-        -- Glow on main barrel (center)
-        love.graphics.setColor(1, 1, 1, glowIntensity * 0.7)
-        love.graphics.rectangle("fill", -barrelBack, -cannonWidth/2, cannonLength + barrelBack, cannonWidth)
-    end
-
-    love.graphics.setLineWidth(1)
-    love.graphics.pop()
-end
-
 -- ===================
 -- ACTIVE SKILL: PLASMA MISSILE
 -- ===================
 local function activatePlasma()
-    if plasma.state ~= "ready" then return end
-    if laser.state ~= "ready" then return end  -- Can't use during laser
-    plasma.state = "charging"
-    plasma.timer = 0
-    plasma.chargeProgress = 0
-
-    -- Play charge sound immediately when starting
-    Sounds.playPlasmaFire()
-end
-
-local function firePlasmaMissile()
-    local muzzleX, muzzleY = tower:getMuzzleTip()
-
-    -- Create plasma projectile with upgraded stats
-    local plasmaSpeed = PLASMA_MISSILE_SPEED * stats.plasmaSpeed
-    local plasmaDamage = PLASMA_DAMAGE * stats.plasmaDamage
-    local plasmaSize = PLASMA_MISSILE_SIZE * stats.plasmaSize
-
-    local proj = Projectile(muzzleX, muzzleY, tower.angle, plasmaSpeed, plasmaDamage)
-    proj.isPlasma = true
-    proj.piercing = true
-    proj.hitEnemies = {}
-    proj.size = plasmaSize
-    proj.trailLength = 12  -- Longer trail for plasma
-
-    -- Register intense purple light for this projectile
-    proj.lightId = Lighting:addLight({
-        x = proj.x,
-        y = proj.y,
-        radius = PLASMA_LIGHT_RADIUS,
-        intensity = PLASMA_LIGHT_INTENSITY,
-        color = PLASMA_COLOR,
-        type = "projectile",
-        owner = proj,
-        pulse = 8,
-        pulseAmount = 0.3,
-    })
-
-    table.insert(projectiles, proj)
-
-    -- Big muzzle flash
-    local flashX, flashY = tower:getMuzzleTip()
-    Lighting:addLight({
-        x = flashX,
-        y = flashY,
-        radius = 80,
-        intensity = 1.0,
-        color = PLASMA_COLOR,
-        duration = 0.15,
-    })
-
-    -- Feedback
-    Feedback:trigger("plasma_fire")
-end
-
-local function updatePlasma(dt)
-    -- Calculate scaled times based on upgrades
-    local chargeTime = PLASMA_CHARGE_TIME
-    local cooldownTime = PLASMA_COOLDOWN_TIME * stats.plasmaCooldown
-
-    if plasma.state == "ready" then
-        return
-    elseif plasma.state == "charging" then
-        plasma.timer = plasma.timer + dt
-        plasma.chargeProgress = math.min(1, plasma.timer / chargeTime)
-
-        -- Subtle shake during charge
-        if plasma.timer > chargeTime * 0.5 then
-            Feedback:trigger("plasma_charge")
-        end
-
-        if plasma.timer >= chargeTime then
-            -- Fire the plasma missile
-            firePlasmaMissile()
-            plasma.state = "cooldown"
-            plasma.timer = 0
-            plasma.chargeProgress = 0
-        end
-    elseif plasma.state == "cooldown" then
-        plasma.timer = plasma.timer + dt
-        if plasma.timer >= cooldownTime then
-            plasma.state = "ready"
-            plasma.timer = 0
-        end
-    end
-end
-
-local function drawPlasmaBarrelCharge()
-    if plasma.chargeProgress <= 0 then return end
-
-    local flinchX = tower.damageFlinch * math.cos(tower.angle + math.pi) * 2
-    local flinchY = tower.damageFlinch * math.sin(tower.angle + math.pi) * 2
-    local drawX = tower.x + flinchX
-    local drawY = tower.y + flinchY
-
-    love.graphics.push()
-    love.graphics.translate(drawX, drawY)
-    love.graphics.rotate(tower.angle)
-
-    -- Match turret barrel dimensions exactly
-    local BARREL_LENGTH = 50
-    local BARREL_WIDTH = 14
-    local BARREL_BACK = 15
-
-    -- Account for gun kick like the turret does
-    local kickBack = tower.gunKick * 10
-    local barrelStart = -kickBack - BARREL_BACK
-    local barrelTotal = BARREL_LENGTH + BARREL_BACK
-    local halfWidth = BARREL_WIDTH / 2
-
-    -- Charge fills from back to front progressively
-    local chargeLength = barrelTotal * plasma.chargeProgress
-
-    -- Purple glow intensity increases as charge progresses
-    local glowIntensity = 0.4 + plasma.chargeProgress * 0.6
-    local pulseTime = love.timer.getTime() * 10
-    local pulse = 1 + math.sin(pulseTime) * 0.15 * plasma.chargeProgress
-
-    -- Outer glow (extends slightly beyond barrel)
-    love.graphics.setColor(PLASMA_COLOR[1], PLASMA_COLOR[2], PLASMA_COLOR[3], glowIntensity * 0.3 * pulse)
-    love.graphics.rectangle("fill", barrelStart, -halfWidth - 4, chargeLength, BARREL_WIDTH + 8)
-
-    -- Main fill (matches barrel exactly)
-    love.graphics.setColor(PLASMA_COLOR[1], PLASMA_COLOR[2], PLASMA_COLOR[3], glowIntensity * 0.85 * pulse)
-    love.graphics.rectangle("fill", barrelStart, -halfWidth, chargeLength, BARREL_WIDTH)
-
-    -- Inner core (white-purple hot center)
-    love.graphics.setColor(PLASMA_CORE_COLOR[1], PLASMA_CORE_COLOR[2], PLASMA_CORE_COLOR[3], glowIntensity * 0.7 * pulse)
-    love.graphics.rectangle("fill", barrelStart, -halfWidth + 3, chargeLength, BARREL_WIDTH - 6)
-
-    -- Leading edge spark at the charge front
-    if plasma.chargeProgress > 0.05 then
-        local sparkX = barrelStart + chargeLength
-        local sparkSize = 3 + math.sin(pulseTime * 2) * 2 + plasma.chargeProgress * 3
-        love.graphics.setColor(1, 1, 1, glowIntensity)
-        love.graphics.circle("fill", sparkX, 0, sparkSize)
-    end
-
-    love.graphics.pop()
+    if not PlasmaSystem:canActivate() then return end
+    if LaserSystem:isActive() then return end  -- Can't use during laser
+    PlasmaSystem:activate()
 end
 
 -- ===================
@@ -1251,7 +844,8 @@ local function drawUI()
     love.graphics.setColor(0.02, 0.05, 0.02, 0.9)
     love.graphics.rectangle("fill", 10, laserY, laserWidth, laserHeight)
 
-    if laser.state == "ready" then
+    local laserState = LaserSystem:getState()
+    if laserState == "ready" then
         -- Ready glow
         love.graphics.setColor(NEON_PRIMARY[1], NEON_PRIMARY[2], NEON_PRIMARY[3], 0.4)
         love.graphics.rectangle("fill", 10, laserY, laserWidth, laserHeight)
@@ -1267,17 +861,17 @@ local function drawUI()
         -- Text
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.print("[1] LASER", 18, laserY + 8)
-    elseif laser.state == "deploying" or laser.state == "charging" then
+    elseif laserState == "deploying" or laserState == "charging" then
         -- Charging progress fill (green to white based on charge)
         local chargePercent
-        if laser.state == "deploying" then
-            chargePercent = (laser.timer / LASER_DEPLOY_TIME) * 0.1
+        if laserState == "deploying" then
+            chargePercent = (LaserSystem.timer / LASER_DEPLOY_TIME) * 0.1
         else
-            chargePercent = 0.1 + (laser.timer / LASER_CHARGE_TIME) * 0.9
+            chargePercent = 0.1 + (LaserSystem.timer / LASER_CHARGE_TIME) * 0.9
         end
 
         -- Interpolate from green to white based on charge
-        local whiteBlend = laser.chargeGlow
+        local whiteBlend = LaserSystem.chargeGlow
         local r = NEON_PRIMARY[1] + (1 - NEON_PRIMARY[1]) * whiteBlend
         local g = NEON_PRIMARY[2]
         local b = NEON_PRIMARY[3] + (1 - NEON_PRIMARY[3]) * whiteBlend
@@ -1294,7 +888,7 @@ local function drawUI()
         -- Text
         love.graphics.setColor(r, g, b, 1)
         love.graphics.print("CHARGING", 22, laserY + 8)
-    elseif laser.state == "firing" then
+    elseif laserState == "firing" then
         -- Firing glow (pulsing)
         local pulse = 0.6 + math.sin(love.timer.getTime() * 15) * 0.4
         love.graphics.setColor(1, 1, 1, pulse * 0.6)
@@ -1312,7 +906,7 @@ local function drawUI()
     else
         -- Retracting (dim)
         love.graphics.setColor(NEON_PRIMARY_DIM[1], NEON_PRIMARY_DIM[2], NEON_PRIMARY_DIM[3], 0.3)
-        love.graphics.rectangle("fill", 10, laserY, laserWidth * laser.cannonExtend, laserHeight)
+        love.graphics.rectangle("fill", 10, laserY, laserWidth * LaserSystem.cannonExtend, laserHeight)
 
         -- Border
         love.graphics.setColor(NEON_PRIMARY_DIM[1], NEON_PRIMARY_DIM[2], NEON_PRIMARY_DIM[3], 0.5)
@@ -1334,7 +928,8 @@ local function drawUI()
     love.graphics.setColor(0.03, 0.01, 0.05, 0.9)
     love.graphics.rectangle("fill", plasmaX, plasmaY, plasmaWidth, plasmaHeight)
 
-    if plasma.state == "ready" then
+    local plasmaState = PlasmaSystem:getState()
+    if plasmaState == "ready" then
         -- Ready glow (purple)
         love.graphics.setColor(PLASMA_COLOR[1], PLASMA_COLOR[2], PLASMA_COLOR[3], 0.4)
         love.graphics.rectangle("fill", plasmaX, plasmaY, plasmaWidth, plasmaHeight)
@@ -1350,12 +945,12 @@ local function drawUI()
         -- Text
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.print("[2] PLASMA", plasmaX + 6, plasmaY + 8)
-    elseif plasma.state == "charging" then
+    elseif plasmaState == "charging" then
         -- Charging progress fill (purple to white based on charge)
-        local chargePercent = plasma.chargeProgress
+        local chargePercent = PlasmaSystem:getChargeProgress()
 
         -- Interpolate from purple to white based on charge
-        local whiteBlend = plasma.chargeProgress
+        local whiteBlend = chargePercent
         local r = PLASMA_COLOR[1] + (1 - PLASMA_COLOR[1]) * whiteBlend
         local g = PLASMA_COLOR[2] + (1 - PLASMA_COLOR[2]) * whiteBlend
         local b = PLASMA_COLOR[3]
@@ -1375,7 +970,7 @@ local function drawUI()
     else
         -- Cooldown (dim purple with progress)
         local cooldownTime = PLASMA_COOLDOWN_TIME * stats.plasmaCooldown
-        local cooldownPercent = plasma.timer / cooldownTime
+        local cooldownPercent = PlasmaSystem.timer / cooldownTime
         love.graphics.setColor(PLASMA_COLOR[1] * 0.4, PLASMA_COLOR[2] * 0.4, PLASMA_COLOR[3] * 0.4, 0.3)
         love.graphics.rectangle("fill", plasmaX, plasmaY, plasmaWidth * cooldownPercent, plasmaHeight)
 
@@ -1420,153 +1015,82 @@ local function drawUI()
     end
 end
 
--- Ease-out cubic function for smooth deceleration
-local function easeOutCubic(t)
-    return 1 - math.pow(1 - t, 3)
-end
-
 -- Initialize game over animation
 local function initGameOverAnim()
-    gameOverAnim.phase = "fade_in"
-    gameOverAnim.timer = 0
-    gameOverAnim.titleAlpha = 0
-    gameOverAnim.titleY = CENTER_Y * 0.3  -- 30% from top
-    gameOverAnim.statRevealProgress = 0
-    gameOverAnim.overlayAlpha = 0
+    GameOverSystem:start()
 end
 
 -- Update game over animation state machine
 local function updateGameOverAnim(dt)
-    if gameOverAnim.phase == "none" then return end
-
-    gameOverAnim.timer = gameOverAnim.timer + dt
-
-    if gameOverAnim.phase == "fade_in" then
-        local t = math.min(gameOverAnim.timer / GAMEOVER_FADE_DURATION, 1)
-        gameOverAnim.overlayAlpha = easeOutCubic(t) * 0.85
-        if t >= 1 then
-            gameOverAnim.phase = "title_hold"
-            gameOverAnim.timer = 0
-        end
-
-    elseif gameOverAnim.phase == "title_hold" then
-        -- Fade in title
-        local fadeT = math.min(gameOverAnim.timer / GAMEOVER_TITLE_FADE_DURATION, 1)
-        gameOverAnim.titleAlpha = easeOutCubic(fadeT)
-
-        -- Auto-advance to reveal after timeout
-        if gameOverAnim.timer >= GAMEOVER_TITLE_HOLD_TIMEOUT then
-            gameOverAnim.phase = "reveal"
-            gameOverAnim.timer = 0
-        end
-
-    elseif gameOverAnim.phase == "reveal" then
-        local t = math.min(gameOverAnim.timer / GAMEOVER_REVEAL_DURATION, 1)
-        gameOverAnim.statRevealProgress = easeOutCubic(t)
-
-        if t >= 1 then
-            gameOverAnim.phase = "complete"
-            gameOverAnim.timer = 0
-        end
-
-    -- "complete" phase: nothing to update, just wait for input
-    end
+    GameOverSystem:update(dt)
 end
 
 -- Trigger reveal phase (called on keypress during title_hold)
 local function triggerGameOverReveal()
-    if gameOverAnim.phase == "title_hold" then
-        gameOverAnim.phase = "reveal"
-        gameOverAnim.timer = 0
-    end
+    GameOverSystem:triggerReveal()
 end
 
 local function drawGameOver()
-    -- Don't draw if animation hasn't started
-    if gameOverAnim.phase == "none" then return end
+    GameOverSystem:draw(gameTime, totalKills, gold, totalGold, polygons)
+end
 
-    local font = love.graphics.getFont()
-    local title = "SYSTEM FAILURE"
-    local titleWidth = font:getWidth(title)
+-- ===================
+-- EVENT LISTENERS
+-- ===================
+function registerEventListeners()
+    -- Enemy hit: impact effects, blood particles, feedback
+    EventBus:on("enemy_hit", function(data)
+        if data.angle then
+            DebrisManager:spawnImpactBurst(data.x, data.y, data.angle)
+            DebrisManager:spawnBloodParticles(data.x, data.y, data.angle, data.shapeName, data.color, data.intensity)
+        end
+        if data.damage >= 0.5 then
+            Feedback:trigger("small_hit", {
+                damage_dealt = data.damage,
+                current_hp = data.currentHp,
+                max_hp = data.maxHp,
+                impact_angle = data.angle,
+                impact_x = data.x,
+                impact_y = data.y,
+            })
+        end
+    end)
 
-    -- Layout constants
-    local titleYBase = CENTER_Y * 0.3      -- ~30% from top when revealed
-    local titleYStart = CENTER_Y - 80      -- Initial centered position
-    local statsStartY = CENTER_Y * 0.45    -- Stats start at ~45% from top
-    local statLineHeight = 20
-    local buttonsY = CENTER_Y * 0.7        -- Buttons at ~70% from top
+    -- Enemy death: death sound and explosion burst
+    EventBus:on("enemy_death", function(data)
+        Sounds.playEnemyDeath()
+        DebrisManager:spawnExplosionBurst(data.x, data.y, data.angle, data.shapeName, data.color, data.explosionVelocity)
+    end)
 
-    -- Dark overlay
-    love.graphics.setColor(0.01, 0.03, 0.01, gameOverAnim.overlayAlpha)
-    love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
+    -- Projectile fire: shoot sound
+    EventBus:on("projectile_fire", function(_)
+        Sounds.playShoot()
+    end)
 
-    -- During fade_in, just draw overlay
-    if gameOverAnim.phase == "fade_in" then return end
+    -- Tower damage: damage feedback
+    EventBus:on("tower_damage", function(_)
+        Feedback:trigger("tower_damage")
+    end)
 
-    -- Calculate title position (slides up during reveal)
-    local titleY
-    if gameOverAnim.phase == "title_hold" then
-        titleY = titleYStart
-    else
-        -- Interpolate from center to top position during reveal
-        titleY = lume.lerp(titleYStart, titleYBase, gameOverAnim.statRevealProgress)
-    end
-    local titleX = CENTER_X - titleWidth / 2
+    -- Dash launch: anticipation feedback
+    EventBus:on("dash_launch", function(_)
+        Feedback:trigger("dash_launch")
+    end)
 
-    -- Title with red neon glow
-    local titleAlpha = gameOverAnim.titleAlpha
-    love.graphics.setColor(NEON_RED[1], NEON_RED[2], NEON_RED[3], 0.3 * titleAlpha)
-    love.graphics.print(title, titleX - 1, titleY - 1)
-    love.graphics.print(title, titleX + 1, titleY + 1)
-    love.graphics.setColor(NEON_RED[1], NEON_RED[2], NEON_RED[3], titleAlpha)
-    love.graphics.print(title, titleX, titleY)
+    -- Dash start: launch particles
+    EventBus:on("dash_start", function(data)
+        if DebrisManager.spawnDashLaunchBurst then
+            DebrisManager:spawnDashLaunchBurst(data.x, data.y, data.angle)
+        end
+    end)
 
-    -- Don't draw stats during title_hold phase
-    if gameOverAnim.phase == "title_hold" then return end
-
-    -- Stats with staggered reveal
-    local statsX = CENTER_X - 70
-    local revealProgress = gameOverAnim.statRevealProgress
-
-    -- Helper to get alpha for a specific stat index (0-based)
-    local function getStatAlpha(index)
-        local statStart = index * GAMEOVER_STAT_STAGGER
-        local statProgress = (revealProgress - statStart) / (1 - statStart)
-        return math.max(0, math.min(1, statProgress)) * 0.9
-    end
-
-    -- Time Survived (green)
-    local minutes = math.floor(gameTime / 60)
-    local seconds = math.floor(gameTime % 60)
-    love.graphics.setColor(NEON_PRIMARY[1], NEON_PRIMARY[2], NEON_PRIMARY[3], getStatAlpha(0))
-    love.graphics.print(string.format("Time Survived: %d:%02d", minutes, seconds), statsX, statsStartY)
-
-    -- Enemies Destroyed (green)
-    love.graphics.setColor(NEON_PRIMARY[1], NEON_PRIMARY[2], NEON_PRIMARY[3], getStatAlpha(1))
-    love.graphics.print("Enemies Destroyed: " .. totalKills, statsX, statsStartY + statLineHeight)
-
-    -- Credits Earned (yellow)
-    love.graphics.setColor(NEON_YELLOW[1], NEON_YELLOW[2], NEON_YELLOW[3], getStatAlpha(2))
-    love.graphics.print("Credits Earned: +" .. gold, statsX, statsStartY + statLineHeight * 2)
-
-    -- Total Credits (yellow)
-    love.graphics.setColor(NEON_YELLOW[1], NEON_YELLOW[2], NEON_YELLOW[3], getStatAlpha(3))
-    love.graphics.print("Total Credits: " .. totalGold, statsX, statsStartY + statLineHeight * 3)
-
-    -- Polygons (purple)
-    love.graphics.setColor(POLYGON_COLOR[1], POLYGON_COLOR[2], POLYGON_COLOR[3], getStatAlpha(4))
-    love.graphics.print("Polygons: P" .. polygons, statsX, statsStartY + statLineHeight * 4)
-
-    -- Only show buttons when animation is complete
-    if gameOverAnim.phase == "complete" then
-        -- [R] REBOOT
-        love.graphics.setColor(NEON_PRIMARY_DIM[1], NEON_PRIMARY_DIM[2], NEON_PRIMARY_DIM[3], 0.7)
-        love.graphics.print("[R] REBOOT", CENTER_X - 100, buttonsY)
-
-        -- [S] SKILL TREE
-        love.graphics.setColor(NEON_CYAN[1], NEON_CYAN[2], NEON_CYAN[3], 0.8)
-        love.graphics.print("[S] SKILL TREE", CENTER_X + 20, buttonsY)
-    end
+    -- Dash land: landing feedback and particles
+    EventBus:on("dash_land", function(data)
+        Feedback:trigger("dash_land")
+        if DebrisManager.spawnDashLandingBurst then
+            DebrisManager:spawnDashLandingBurst(data.x, data.y, data.angle)
+        end
+    end)
 end
 
 -- ===================
@@ -1584,6 +1108,7 @@ function startNewRun()
 
     -- Create tower with upgraded HP
     tower = Turret(CENTER_X, CENTER_Y)
+    EntityManager:setTower(tower)  -- Register with EntityManager for decoupled access
     tower.lightId = Lighting:addTowerGlow(tower)
 
     -- Initialize camera to follow tower
@@ -1611,22 +1136,10 @@ function startNewRun()
     gold = 0
     totalKills = 0
 
-    -- Reset game over animation
-    gameOverAnim.phase = "none"
-
-    -- Reset laser state
-    laser.state = "ready"
-    laser.timer = 0
-    laser.cannonExtend = 0
-    laser.chargeGlow = 0
-    laser.damageAccum = 0
-    laser.hitEnemies = {}
-    Sounds.stopLaser()
-
-    -- Reset plasma state
-    plasma.state = "ready"
-    plasma.timer = 0
-    plasma.chargeProgress = 0
+    -- Reset systems
+    GameOverSystem:reset()
+    LaserSystem:reset()
+    PlasmaSystem:reset()
 
     -- Reset spawning system
     gameTime = 0
@@ -1852,12 +1365,24 @@ function love.load()
     initGround()
     Parallax:init()
 
+    -- Initialize new systems
+    EntityManager:init()
+    LaserSystem:init()
+    PlasmaSystem:init()
+    GameOverSystem:init()
+    CollisionManager:init()
+    AbilityManager:init()
+
+    -- Register event listeners for decoupled entity communication
+    registerEventListeners()
+
     -- Start in intro state if enabled, otherwise go straight to playing
     if INTRO_ENABLED then
         gameState = "intro"
         Intro:start()
         -- Create tower for intro animation (but don't start full run yet)
         tower = Turret(CENTER_X, CENTER_Y)
+        EntityManager:setTower(tower)  -- Register with EntityManager for decoupled access
         tower.lightId = Lighting:addTowerGlow(tower)
     else
         startNewRun()
@@ -1927,10 +1452,60 @@ function love.update(dt)
     local gameDt = Feedback:update(dt)
 
     -- Update laser beam system (uses both raw dt and gameDt)
-    updateLaser(dt, gameDt)
+    local laserResults = LaserSystem:update(dt, tower, stats, enemies)
+
+    -- Process laser results
+    for _, kill in ipairs(laserResults.kills) do
+        totalKills = totalKills + 1
+    end
+    gold = gold + laserResults.goldEarned
+    totalGold = totalGold + laserResults.goldEarned
+
+    for _, shardData in ipairs(laserResults.shardsToSpawn) do
+        spawnShardCluster(shardData.x, shardData.y, shardData.shapeName, shardData.count)
+    end
+
+    for _, data in ipairs(laserResults.damageDealt) do
+        if data.type == "damageNumber" then
+            spawnDamageNumber(data.x, data.y, data.amount)
+        elseif data.type == "goldNumber" then
+            spawnDamageNumber(data.x, data.y, data.amount, "gold")
+        elseif data.type == "particle" then
+            spawnParticle(data)
+        elseif data.type == "flyingPart" then
+            table.insert(flyingParts, FlyingPart(data.data))
+        end
+    end
 
     -- Update plasma missile system
-    updatePlasma(dt)
+    local plasmaResult = PlasmaSystem:update(dt, tower, stats)
+    if plasmaResult then
+        -- Create plasma projectile
+        local proj = Projectile(plasmaResult.x, plasmaResult.y, plasmaResult.angle, plasmaResult.speed, plasmaResult.damage)
+        proj.isPlasma = true
+        proj.piercing = plasmaResult.piercing
+        proj.hitEnemies = {}
+        proj.size = plasmaResult.size
+        proj.trailLength = plasmaResult.trailLength
+
+        -- Register light for this projectile
+        proj.lightId = Lighting:addLight({
+            x = proj.x,
+            y = proj.y,
+            radius = plasmaResult.light.radius,
+            intensity = plasmaResult.light.intensity,
+            color = plasmaResult.light.color,
+            type = "projectile",
+            owner = proj,
+            pulse = plasmaResult.light.pulse,
+            pulseAmount = plasmaResult.light.pulseAmount,
+        })
+
+        table.insert(projectiles, proj)
+
+        -- Muzzle flash
+        Lighting:addLight(plasmaResult.muzzleFlash)
+    end
 
     -- Continuous spawning (uses gameDt to freeze during hit-stop)
     gameTime = gameTime + gameDt
@@ -1957,11 +1532,12 @@ function love.update(dt)
     end
 
     -- Update tower - use raw dt during laser so turret can track while firing
-    local turretDt = (laser.state == "firing" or laser.state == "charging") and dt or gameDt
+    local laserState = LaserSystem:getState()
+    local turretDt = (laserState == "firing" or laserState == "charging") and dt or gameDt
     if autoFire and target then
         -- Auto-fire mode: aim at nearest enemy and auto-fire
         tower:update(turretDt, target.x, target.y)
-        if tower:canFire() and laser.state == "ready" then
+        if tower:canFire() and not LaserSystem:isActive() then
             fireProjectile()
         end
     else
@@ -1970,7 +1546,7 @@ function love.update(dt)
         tower:update(turretDt, mx, my)
 
         -- Manual mode: auto-fire when holding mouse button
-        if not autoFire and love.mouse.isDown(1) and tower:canFire() and laser.state == "ready" then
+        if not autoFire and love.mouse.isDown(1) and tower:canFire() and not LaserSystem:isActive() then
             fireProjectile()
         end
     end
@@ -2657,11 +2233,11 @@ function love.draw()
     Lighting:drawLights()
 
     -- 8. Laser beam and cannons
-    drawLaserCannons()
-    drawLaserBeam()
+    LaserSystem:drawCannons(tower)
+    LaserSystem:drawBeam(tower, stats)
 
     -- 9. Plasma barrel charge effect
-    drawPlasmaBarrelCharge()
+    PlasmaSystem:drawBarrelCharge(tower)
 
     -- 10. Visual effects (non-text)
     drawParticles()
@@ -2830,13 +2406,13 @@ function love.keypressed(key)
     -- Gameover state
     if gameState == "gameover" then
         -- During title_hold phase, any key triggers reveal
-        if gameOverAnim.phase == "title_hold" then
+        if GameOverSystem:getPhase() == "title_hold" then
             triggerGameOverReveal()
             return
         end
 
         -- Block gameplay inputs until animation is complete
-        if gameOverAnim.phase ~= "complete" then
+        if not GameOverSystem:isComplete() then
             return
         end
 

@@ -132,10 +132,15 @@ function Turret:fire()
     self.muzzleFlash = 0.1
     self.gunKick = GUN_KICK_AMOUNT
 
-    Sounds.playShoot()
-
     local muzzleX = self.x + math.cos(self.angle) * BARREL_LENGTH
     local muzzleY = self.y + math.sin(self.angle) * BARREL_LENGTH
+
+    -- Emit fire event (handles sound)
+    EventBus:emit("projectile_fire", {
+        x = muzzleX,
+        y = muzzleY,
+        angle = self.angle,
+    })
 
     return Projectile(muzzleX, muzzleY, self.angle, self.projectileSpeed, self.damage)
 end
@@ -244,7 +249,13 @@ end
 function Turret:takeDamage(amount)
     self.hp = self.hp - amount
     self.damageFlinch = 1.0
-    Feedback:trigger("tower_damage")
+
+    -- Emit tower damage event (handles feedback)
+    EventBus:emit("tower_damage", {
+        damage = amount,
+        currentHp = self.hp,
+        maxHp = self.maxHp,
+    })
 
     if self.hp <= 0 then
         self.hp = 0
@@ -313,8 +324,12 @@ function Turret:tryDash(dirX, dirY)
     self.dash.afterimages = {}
     self.dash.afterimageTimer = 0
 
-    -- Trigger anticipation feedback
-    Feedback:trigger("dash_launch")
+    -- Emit dash launch event (handles feedback)
+    EventBus:emit("dash_launch", {
+        x = self.x,
+        y = self.y,
+        angle = self.dash.directionAngle,
+    })
 
     return true
 end
@@ -366,10 +381,12 @@ function Turret:updateDash(dt)
             self.dash.state = "dashing"
             self.dash.timer = 0
 
-            -- Spawn launch particles
-            if DebrisManager and DebrisManager.spawnDashLaunchBurst then
-                DebrisManager:spawnDashLaunchBurst(self.x, self.y, self.dash.directionAngle)
-            end
+            -- Emit dash start event (handles launch particles)
+            EventBus:emit("dash_start", {
+                x = self.x,
+                y = self.y,
+                angle = self.dash.directionAngle,
+            })
         end
 
     elseif self.dash.state == "dashing" then
@@ -415,13 +432,12 @@ function Turret:updateDash(dt)
             self.x = self.dash.targetX
             self.y = self.dash.targetY
 
-            -- Trigger landing feedback
-            Feedback:trigger("dash_land")
-
-            -- Spawn landing particles
-            if DebrisManager and DebrisManager.spawnDashLandingBurst then
-                DebrisManager:spawnDashLandingBurst(self.x, self.y, self.dash.directionAngle)
-            end
+            -- Emit dash land event (handles feedback and landing particles)
+            EventBus:emit("dash_land", {
+                x = self.x,
+                y = self.y,
+                angle = self.dash.directionAngle,
+            })
         end
 
     elseif self.dash.state == "recovery" then

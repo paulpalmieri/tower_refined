@@ -97,8 +97,9 @@ function Enemy:update(dt)
     end
 
     -- Move toward tower
-    local dx = tower.x - self.x
-    local dy = tower.y - self.y
+    local twr = EntityManager:getTower()
+    local dx = twr.x - self.x
+    local dy = twr.y - self.y
     local dist = math.sqrt(dx * dx + dy * dy)
 
     if dist > 5 then
@@ -647,28 +648,21 @@ function Enemy:takeDamage(amount, angle, impactData)
         local knockbackForce = self:calculateKnockback(finalDamage, impactVelocity)
         self.knockbackX = math.cos(angle) * knockbackForce
         self.knockbackY = math.sin(angle) * knockbackForce
-
-        -- Green impact burst at hit location
-        DebrisManager:spawnImpactBurst(hitX, hitY, angle)
     end
 
-    -- Spawn blood particles (shape-matching)
-    if angle then
-        local intensity = self:calculateIntensity(finalDamage, impactVelocity)
-        DebrisManager:spawnBloodParticles(hitX, hitY, angle, self.shapeName, self.color, intensity)
-    end
-
-    -- Trigger feedback (screen shake)
-    if finalDamage >= 0.5 then
-        Feedback:trigger("small_hit", {
-            damage_dealt = finalDamage,
-            current_hp = self.hp,
-            max_hp = self.maxHp,
-            impact_angle = angle,
-            impact_x = hitX,
-            impact_y = hitY,
-        })
-    end
+    -- Emit hit event (handles impact burst, blood particles, and feedback)
+    local intensity = angle and self:calculateIntensity(finalDamage, impactVelocity) or 0.5
+    EventBus:emit("enemy_hit", {
+        x = hitX,
+        y = hitY,
+        angle = angle,
+        damage = finalDamage,
+        currentHp = self.hp,
+        maxHp = self.maxHp,
+        shapeName = self.shapeName,
+        color = self.color,
+        intensity = intensity,
+    })
 
     -- Check death condition: HP depleted (core destroyed)
     if self.hp <= 0 then
@@ -685,7 +679,6 @@ end
 
 function Enemy:die(angle, impactData)
     self.dead = true
-    Sounds.playEnemyDeath()
 
     angle = angle or lume.random(0, math.pi * 2)
 
@@ -698,14 +691,24 @@ function Enemy:die(angle, impactData)
     end
 
     local explosionVelocity = self:calculateExplosionVelocity(impactVelocity, overkillDamage)
-    DebrisManager:spawnExplosionBurst(self.x, self.y, angle, self.shapeName, self.color, explosionVelocity)
+
+    -- Emit death event (handles death sound and explosion burst)
+    EventBus:emit("enemy_death", {
+        x = self.x,
+        y = self.y,
+        angle = angle,
+        shapeName = self.shapeName,
+        color = self.color,
+        explosionVelocity = explosionVelocity,
+    })
 end
 
 function Enemy:checkTowerCollision()
     if self.dead then return false end
 
-    local dx = self.x - tower.x
-    local dy = self.y - tower.y
+    local twr = EntityManager:getTower()
+    local dx = self.x - twr.x
+    local dy = self.y - twr.y
     local dist = math.sqrt(dx * dx + dy * dy)
 
     local collisionDist = 23 + self.size * self.scale * 0.5  -- Matches scaled BASE_RADIUS

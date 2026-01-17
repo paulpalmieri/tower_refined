@@ -156,8 +156,9 @@ function CompositeEnemy:update(dt)
         end
 
         -- Move toward tower
-        local dx = tower.x - self.x
-        local dy = tower.y - self.y
+        local twr = EntityManager:getTower()
+        local dx = twr.x - self.x
+        local dy = twr.y - self.y
         local dist = math.sqrt(dx * dx + dy * dy)
 
         if dist > 5 then
@@ -596,31 +597,27 @@ function CompositeEnemy:takeDamageOnNode(amount, angle, impactData)
 
         -- Clamp rotation speed to prevent infinite spin
         root.rotationSpeed = lume.clamp(root.rotationSpeed, -TORQUE_MAX_ROTATION_SPEED, TORQUE_MAX_ROTATION_SPEED)
-
-        -- Green impact burst at hit location
-        DebrisManager:spawnImpactBurst(hitX, hitY, angle)
-
-        -- Spawn blood particles (shape-matching)
-        local velocityRatio = impactVelocity / PROJECTILE_SPEED
-        local damageRatio = finalDamage / PROJECTILE_DAMAGE
-        local intensity = IMPACT_BASE_INTENSITY
-            + (velocityRatio - 1) * IMPACT_VELOCITY_SCALE
-            + (damageRatio - 1) * IMPACT_DAMAGE_SCALE
-        intensity = math.max(0.2, math.min(intensity, IMPACT_MAX_INTENSITY))
-        DebrisManager:spawnBloodParticles(hitX, hitY, angle, self.shapeName, self.color, intensity)
     end
 
-    -- Trigger feedback (screen shake)
-    if finalDamage >= 0.5 then
-        Feedback:trigger("small_hit", {
-            damage_dealt = finalDamage,
-            current_hp = self.hp,
-            max_hp = self.maxHp,
-            impact_angle = angle,
-            impact_x = hitX,
-            impact_y = hitY,
-        })
-    end
+    -- Emit hit event (handles impact burst, blood particles, and feedback)
+    local velocityRatio = impactVelocity / PROJECTILE_SPEED
+    local damageRatio = finalDamage / PROJECTILE_DAMAGE
+    local intensity = IMPACT_BASE_INTENSITY
+        + (velocityRatio - 1) * IMPACT_VELOCITY_SCALE
+        + (damageRatio - 1) * IMPACT_DAMAGE_SCALE
+    intensity = math.max(0.2, math.min(intensity, IMPACT_MAX_INTENSITY))
+
+    EventBus:emit("enemy_hit", {
+        x = hitX,
+        y = hitY,
+        angle = angle,
+        damage = finalDamage,
+        currentHp = self.hp,
+        maxHp = self.maxHp,
+        shapeName = self.shapeName,
+        color = self.color,
+        intensity = intensity,
+    })
 
     -- Check death
     if self.hp <= 0 then
@@ -693,7 +690,6 @@ end
 
 function CompositeEnemy:die(angle, impactData)
     self.dead = true
-    Sounds.playEnemyDeath()
 
     angle = angle or lume.random(0, math.pi * 2)
 
@@ -709,7 +705,16 @@ function CompositeEnemy:die(angle, impactData)
         + math.min(0.5, overkillDamage / self.maxHp) * 50
 
     explosionVelocity = math.min(math.max(EXPLOSION_BASE_VELOCITY, explosionVelocity), EXPLOSION_MAX_VELOCITY)
-    DebrisManager:spawnExplosionBurst(self.worldX, self.worldY, angle, self.shapeName, self.color, explosionVelocity)
+
+    -- Emit death event (handles death sound and explosion burst)
+    EventBus:emit("enemy_death", {
+        x = self.worldX,
+        y = self.worldY,
+        angle = angle,
+        shapeName = self.shapeName,
+        color = self.color,
+        explosionVelocity = explosionVelocity,
+    })
 end
 
 -- ===================
@@ -720,8 +725,9 @@ function CompositeEnemy:checkTowerCollision()
     if self.dead then return false end
 
     -- Check root node collision
-    local dx = self.worldX - tower.x
-    local dy = self.worldY - tower.y
+    local twr = EntityManager:getTower()
+    local dx = self.worldX - twr.x
+    local dy = self.worldY - twr.y
     local dist = math.sqrt(dx * dx + dy * dy)
     local collisionDist = 23 + self.size * self.scale * 0.5
 

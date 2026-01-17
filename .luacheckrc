@@ -42,8 +42,13 @@ globals = {
     "DebugConsole",
     "SkillTree",
     "Intro",
+    "SettingsMenu",
 
     -- Global functions
+    "toggleFullscreen",
+
+    -- Global settings state
+    "isFullscreen",
     "spawnParticle",
     "spawnChunk",
     "spawnDust",
@@ -164,6 +169,11 @@ globals = {
     "KNOCKBACK_DAMAGE_SCALE",
     "KNOCKBACK_MAX_MULTIPLIER",
     "KNOCKBACK_DURATION",
+
+    -- Torque / Physics Rotation
+    "TORQUE_BASE_SCALE",
+    "TORQUE_MAX_ROTATION_SPEED",
+    "TORQUE_SIZE_FACTOR",
 
     -- Spawning
     "SPAWN_RATE",
@@ -401,6 +411,18 @@ globals = {
     "MISSILE_LIGHT_INTENSITY",
     "MISSILE_EXPLOSION_PARTICLES",
     "MISSILE_EXPLOSION_VELOCITY",
+
+    -- Composite enemy system
+    "CompositeEnemy",
+    "compositeEnemies",
+    "COMPOSITE_TEMPLATES",
+    "COMPOSITE_CHILD_OFFSET",
+    "COMPOSITE_SIZE_RATIO",
+    "COMPOSITE_SPEED_PENALTY",
+    "COMPOSITE_MAX_DEPTH",
+    "COMPOSITE_DETACH_SCATTER",
+    "COMPOSITE_DETACH_SPIN",
+    "SHAPE_COLORS",
 }
 
 -- Exclude library files from linting

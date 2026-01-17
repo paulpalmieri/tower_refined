@@ -19,10 +19,10 @@ INTRO_TEXT_2 = "You're the last one of them"
 INTRO_ALERT_TEXT = "SYSTEM ONLINE"
 
 -- ===================
--- WINDOW
+-- WINDOW (16:9 aspect ratio)
 -- ===================
-WINDOW_WIDTH = 800
-WINDOW_HEIGHT = 600
+WINDOW_WIDTH = 1600
+WINDOW_HEIGHT = 900
 CENTER_X = WINDOW_WIDTH / 2
 CENTER_Y = WINDOW_HEIGHT / 2
 
@@ -107,7 +107,7 @@ ENEMY_TYPES = {
         -- hp calculated from shape: sides
         speed = 55,
         scale = 1.0,
-        baseSize = 18,
+        baseSize = 12,
         color = {1.00, 0.00, 0.00},  -- Red
     },
     fast = {
@@ -115,7 +115,7 @@ ENEMY_TYPES = {
         -- hp calculated from shape: sides
         speed = 100,
         scale = 0.8,
-        baseSize = 14,
+        baseSize = 9,
         color = {0.00, 1.00, 1.00},  -- Cyan
     },
     tank = {
@@ -123,7 +123,7 @@ ENEMY_TYPES = {
         -- hp calculated from shape: sides
         speed = 35,
         scale = 1.4,
-        baseSize = 24,
+        baseSize = 16,
         color = {1.00, 1.00, 0.00},  -- Yellow
     },
     brute = {
@@ -131,7 +131,7 @@ ENEMY_TYPES = {
         -- hp calculated from shape: sides
         speed = 25,
         scale = 1.6,
-        baseSize = 28,
+        baseSize = 19,
         color = {1.00, 0.40, 0.10},  -- Orange
     },
     elite = {
@@ -139,7 +139,7 @@ ENEMY_TYPES = {
         -- hp calculated from shape: sides
         speed = 45,
         scale = 1.8,
-        baseSize = 32,
+        baseSize = 21,
         color = {1.00, 0.90, 0.80},  -- White-gold
     },
 }
@@ -150,18 +150,18 @@ SPEED_VARIATION = 0.15
 -- LIGHTING
 -- ===================
 -- Projectile lights
-PROJECTILE_LIGHT_RADIUS = 22
+PROJECTILE_LIGHT_RADIUS = 15
 PROJECTILE_LIGHT_INTENSITY = 0.6
 PROJECTILE_LIGHT_COLOR = {0.2, 1, 0.4}
 
 -- Muzzle flash
-MUZZLE_FLASH_RADIUS = 40
+MUZZLE_FLASH_RADIUS = 27
 MUZZLE_FLASH_INTENSITY = 1.0
 MUZZLE_FLASH_DURATION = 0.06
 MUZZLE_FLASH_COLOR = {0.4, 1, 0.6}
 
 -- Tower glow
-TOWER_LIGHT_RADIUS = 120
+TOWER_LIGHT_RADIUS = 80
 TOWER_LIGHT_INTENSITY = 0.3
 TOWER_LIGHT_COLOR = {0.1, 0.5, 0.2}
 TOWER_LIGHT_PULSE_SPEED = 2.0
@@ -177,18 +177,25 @@ KNOCKBACK_MAX_MULTIPLIER = 3.0    -- Cap to prevent absurd knockback
 KNOCKBACK_DURATION = 0.5
 
 -- ===================
+-- TORQUE / PHYSICS ROTATION
+-- ===================
+TORQUE_BASE_SCALE = 0.008         -- Base multiplier for torque -> rotationSpeed
+TORQUE_MAX_ROTATION_SPEED = 12.0  -- Cap rotation speed to prevent infinite spin
+TORQUE_SIZE_FACTOR = 0.5          -- Larger enemies resist torque more
+
+-- ===================
 -- SPAWNING
 -- ===================
 SPAWN_RATE = 0.4
 MAX_ENEMIES = 40
 SPAWN_RATE_INCREASE = 0.03
-SPAWN_DISTANCE = 500
+SPAWN_DISTANCE = 800  -- Pushed further for larger 1200x900 viewport
 
 -- ===================
 -- HIT FEEDBACK
 -- ===================
 BLOB_FLASH_DURATION = 0.05
-BLOB_PIXEL_SIZE = 3
+BLOB_PIXEL_SIZE = 2
 
 -- ===================
 -- PARTS SYSTEM (breakable sides)
@@ -241,7 +248,7 @@ CORPSE_DARKENING = 0.4
 -- COLLISION
 -- ===================
 ENEMY_CONTACT_DAMAGE = 10
-TOWER_PAD_SIZE = 16
+TOWER_PAD_SIZE = 11
 
 -- ===================
 -- LASER BEAM
@@ -251,8 +258,8 @@ LASER_CHARGE_TIME = 0.8      -- Charging phase (fast buildup)
 LASER_FIRE_TIME = 5.0        -- Firing duration (seconds)
 LASER_RETRACT_TIME = 0.3     -- Side cannons retract (seconds)
 LASER_DAMAGE_PER_SEC = 10    -- DPS to enemies in beam
-LASER_BEAM_LENGTH = 600      -- How far the beam reaches
-LASER_BEAM_WIDTH = 46        -- Beam width (matches 3 barrels: 14+2+14+2+14)
+LASER_BEAM_LENGTH = 900      -- How far the beam reaches (extended for 1200x900 viewport)
+LASER_BEAM_WIDTH = 31        -- Beam width (scaled ~0.67x)
 
 -- ===================
 -- PLASMA MISSILE
@@ -261,10 +268,10 @@ PLASMA_CHARGE_TIME = 1.5     -- Windup time (seconds)
 PLASMA_COOLDOWN_TIME = 5.0   -- Cooldown after firing (seconds)
 PLASMA_DAMAGE = 10           -- Damage per enemy hit (piercing)
 PLASMA_MISSILE_SPEED = 500   -- Slower than bullets for dramatic effect
-PLASMA_MISSILE_SIZE = 15     -- ~3x normal bullet size (5*3)
+PLASMA_MISSILE_SIZE = 10     -- ~3x normal bullet size (scaled ~0.67x)
 PLASMA_COLOR = {0.8, 0.2, 1.0}       -- Purple
 PLASMA_CORE_COLOR = {1.0, 0.8, 1.0}  -- White-purple hot core
-PLASMA_LIGHT_RADIUS = 120    -- Large glow radius
+PLASMA_LIGHT_RADIUS = 80     -- Large glow radius (scaled ~0.67x)
 PLASMA_LIGHT_INTENSITY = 1.0 -- Intense glow
 PLASMA_SOUND_VOLUME = 0.3    -- Firing sound volume
 
@@ -282,14 +289,14 @@ POLYGON_HOVER_GLOW = 1.0              -- Glow when hovered
 POLYGON_PULSE_SPEED = 3.0             -- Pulse animation speed
 POLYGON_PULSE_AMOUNT = 0.1            -- Pulse size variation (10%)
 POLYGON_MAGNET_TIME = 0.7             -- Seconds to attract to turret
-POLYGON_LIGHT_RADIUS = 40             -- Glow light radius
+POLYGON_LIGHT_RADIUS = 27             -- Glow light radius (scaled ~0.67x)
 POLYGON_LIGHT_INTENSITY = 0.5         -- Glow light intensity
 POLYGON_EJECT_SPEED = 150             -- Speed shard ejects from enemy
 POLYGON_EJECT_FRICTION = 3.0          -- How quickly ejected shard slows down
 POLYGON_FRAGMENT_SIZE_RATIO = 0.5     -- Fragment size relative to parent
 POLYGON_FRAGMENT_SPREAD = 0.8         -- Angle spread when shattering (radians)
 POLYGON_PICKUP_RADIUS_BASE = 80       -- Base magnetic collection radius
-POLYGON_CLUSTER_SHARD_SIZE = 8        -- Size of individual shards in cluster
+POLYGON_CLUSTER_SHARD_SIZE = 5        -- Size of individual shards in cluster (scaled ~0.67x)
 POLYGON_CLUSTER_SPREAD = 20           -- Spread radius for cluster spawn
 
 -- ===================
@@ -313,7 +320,7 @@ DRONE_PROJECTILE_SPEED = 560      -- 0.8x normal projectile speed
 DRONE_ROTATION_SPEED = 15.0       -- Slightly slower than turret
 
 -- Drone light
-DRONE_LIGHT_RADIUS = 30
+DRONE_LIGHT_RADIUS = 20
 DRONE_LIGHT_INTENSITY = 0.4
 DRONE_COLOR = {0.70, 0.20, 1.00}  -- Purple (same as POLYGON_COLOR)
 
@@ -391,7 +398,7 @@ HEAT_DISTORTION_SPEED = 1.5         -- Animation speed
 -- ===================
 -- SHIELD
 -- ===================
-SHIELD_BASE_RADIUS = 80              -- Base radius when unlocked
+SHIELD_BASE_RADIUS = 54              -- Base radius when unlocked (scaled ~0.67x)
 SHIELD_PULSE_SPEED = 2.0             -- Idle pulse speed
 SHIELD_PULSE_AMOUNT = 0.05           -- Pulse size variation (5%)
 SHIELD_HIT_FLASH_DURATION = 0.12     -- White flash on kill
@@ -408,8 +415,8 @@ SHIELD_COLOR_FILL = {0.1, 0.6, 0.4}    -- Subtle inner fill
 -- MISSILE SILO SYSTEM
 -- ===================
 -- Silo placement
-SILO_ORBIT_RADIUS = 55           -- Distance from turret center (just outside base radius 35)
-SILO_SIZE = 16                   -- Silo diameter
+SILO_ORBIT_RADIUS = 37           -- Distance from turret center (scaled ~0.67x)
+SILO_SIZE = 11                   -- Silo diameter (scaled ~0.67x)
 SILO_HATCH_GAP = 2               -- Gap when hatch fully opens
 
 -- Silo timing
@@ -422,7 +429,7 @@ SILO_FIRE_DELAY = 0.05           -- Delay after hatch opens before missile launc
 MISSILE_SPEED = 250              -- Base missile speed
 MISSILE_TURN_RATE = 4.0          -- Radians per second (moderate homing)
 MISSILE_DAMAGE = 1               -- Damage on impact
-MISSILE_SIZE = 6                 -- Missile body size
+MISSILE_SIZE = 4                 -- Missile body size (scaled ~0.67x)
 MISSILE_TRAIL_LENGTH = 10        -- Trail segments
 
 -- Missile colors (orange theme)
@@ -436,9 +443,28 @@ SILO_FILL_COLOR = {0.2, 0.12, 0.02}     -- Dark orange fill
 SILO_GLOW_COLOR = {1.0, 0.6, 0.1, 0.3}  -- Orange glow
 
 -- Missile light
-MISSILE_LIGHT_RADIUS = 25
+MISSILE_LIGHT_RADIUS = 17
 MISSILE_LIGHT_INTENSITY = 0.5
 
 -- Missile explosion
 MISSILE_EXPLOSION_PARTICLES = 8
 MISSILE_EXPLOSION_VELOCITY = 200
+
+-- ===================
+-- COMPOSITE ENEMY SYSTEM
+-- ===================
+COMPOSITE_CHILD_OFFSET = 0.9     -- Distance multiplier (children positioned tight against parent)
+COMPOSITE_SIZE_RATIO = 0.7       -- Children are 70% parent size
+COMPOSITE_SPEED_PENALTY = 0.85   -- Speed reduction per layer depth
+COMPOSITE_MAX_DEPTH = 3          -- Max nesting depth
+COMPOSITE_DETACH_SCATTER = 80    -- Velocity when children detach from parent
+COMPOSITE_DETACH_SPIN = 3.0      -- Rotation speed boost on detach
+
+-- Shape-to-color mapping (consistent colors for all shapes)
+SHAPE_COLORS = {
+    triangle = {1.00, 0.00, 0.00},  -- Red
+    square   = {0.00, 1.00, 1.00},  -- Cyan
+    pentagon = {1.00, 1.00, 0.00},  -- Yellow
+    hexagon  = {1.00, 0.40, 0.10},  -- Orange
+    heptagon = {1.00, 0.90, 0.80},  -- White-gold
+}

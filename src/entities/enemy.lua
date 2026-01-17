@@ -115,14 +115,14 @@ function Enemy:draw()
 
     local baseColor = self.color
 
-    -- Outer glow (all sides, creates "skeleton" effect)
+    -- Outer glow (all sides, creates "skeleton" effect, scaled ~0.67x)
     love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.15)
-    love.graphics.setLineWidth(12)
+    love.graphics.setLineWidth(8)
     love.graphics.polygon("line", verts)
 
     -- Mid glow (all sides)
     love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.25)
-    love.graphics.setLineWidth(6)
+    love.graphics.setLineWidth(4)
     love.graphics.polygon("line", verts)
 
     -- Dark fill (core) - flash white when hit through gap
@@ -138,8 +138,8 @@ function Enemy:draw()
     love.graphics.setColor(coreColor[1] * 0.15, coreColor[2] * 0.15, coreColor[3] * 0.15, 0.9)
     love.graphics.polygon("fill", coreVerts)
 
-    -- Thick border - ONLY ALIVE SIDES with per-side flash
-    love.graphics.setLineWidth(4)
+    -- Thick border - ONLY ALIVE SIDES with per-side flash (scaled ~0.67x)
+    love.graphics.setLineWidth(3)
     for i = 1, self.numParts do
         local part = self.parts[i]
         if part.alive then
@@ -180,6 +180,26 @@ function Enemy:calculateKnockback(damage, impactVelocity)
     multiplier = math.min(multiplier, KNOCKBACK_MAX_MULTIPLIER)
 
     return KNOCKBACK_BASE_FORCE * multiplier
+end
+
+-- Calculate torque impulse based on hit position relative to center
+-- Physics: torque = r x v (2D cross product)
+function Enemy:calculateTorqueImpulse(hitX, hitY, bulletVx, bulletVy, impactVelocity)
+    -- Vector from enemy center to hit point
+    local rx = hitX - self.x
+    local ry = hitY - self.y
+
+    -- 2D cross product gives torque direction and magnitude
+    local torque = rx * bulletVy - ry * bulletVx
+
+    -- Scale by velocity ratio
+    local velocityRatio = impactVelocity / PROJECTILE_SPEED
+
+    -- Moment of inertia based on size (larger = more resistant)
+    local effectiveSize = self.size * self.scale
+    local momentOfInertia = 1 + (effectiveSize * TORQUE_SIZE_FACTOR)
+
+    return torque * TORQUE_BASE_SCALE * velocityRatio / momentOfInertia
 end
 
 -- Calculate dynamic particle intensity based on bullet velocity and damage
@@ -476,18 +496,21 @@ function Enemy:takeDamage(amount, angle, impactData)
         end
     end
 
-    -- Impact stagger: spin increase and displacement when parts break off
-    if partsToBreak > 0 then
-        -- Add rotation speed (cumulative, keeps sign but increases magnitude)
-        local spinIncrease = lume.random(IMPACT_SPIN_INCREASE_MIN, IMPACT_SPIN_INCREASE_MAX) * partsToBreak
-        if self.rotationSpeed >= 0 then
-            self.rotationSpeed = self.rotationSpeed + spinIncrease
-        else
-            self.rotationSpeed = self.rotationSpeed - spinIncrease
-        end
+    -- Physics-based torque and displacement on impact
+    if angle then
+        -- Calculate bullet velocity components
+        local bulletVx = math.cos(angle) * impactVelocity
+        local bulletVy = math.sin(angle) * impactVelocity
 
-        -- Perpendicular displacement (left or right of bullet path)
-        if angle then
+        -- Apply torque impulse (physics-based rotation)
+        local torqueImpulse = self:calculateTorqueImpulse(hitX, hitY, bulletVx, bulletVy, impactVelocity)
+        self.rotationSpeed = self.rotationSpeed + torqueImpulse
+
+        -- Clamp rotation speed to prevent infinite spin
+        self.rotationSpeed = lume.clamp(self.rotationSpeed, -TORQUE_MAX_ROTATION_SPEED, TORQUE_MAX_ROTATION_SPEED)
+
+        -- Perpendicular displacement (left or right of bullet path) when parts break
+        if partsToBreak > 0 then
             local perpAngle = angle + (lume.randomchoice({-1, 1}) * math.pi / 2)
             self.x = self.x + math.cos(perpAngle) * IMPACT_DISPLACEMENT * partsToBreak
             self.y = self.y + math.sin(perpAngle) * IMPACT_DISPLACEMENT * partsToBreak
@@ -560,7 +583,7 @@ function Enemy:checkTowerCollision()
     local dy = self.y - tower.y
     local dist = math.sqrt(dx * dx + dy * dy)
 
-    local collisionDist = 35 + self.size * self.scale * 0.5
+    local collisionDist = 23 + self.size * self.scale * 0.5  -- Matches scaled BASE_RADIUS
 
     return dist < collisionDist
 end

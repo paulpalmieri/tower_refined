@@ -3,7 +3,7 @@
 
 local Projectile = Object:extend()
 
--- Neon energy bolt style
+-- Neon energy bolt style (scaled ~0.67x)
 local ENERGY_BOLT = {
     -- Core colors
     coreColor = {0.90, 1.00, 0.90},        -- White-green hot core
@@ -15,29 +15,29 @@ local ENERGY_BOLT = {
     trailLength = 8,                        -- Trail segments
 
     -- Size
-    coreSize = 3,
-    bodySize = 5,
-    glowSize = 10,
+    coreSize = 2,
+    bodySize = 3,
+    glowSize = 7,
 }
 
--- Plasma missile style (uses PLASMA_COLOR and PLASMA_CORE_COLOR from config)
+-- Plasma missile style (uses PLASMA_COLOR and PLASMA_CORE_COLOR from config, scaled ~0.67x)
 local PLASMA_BOLT = {
     trailLength = 12,                       -- Longer trail
-    coreSize = 9,                           -- ~3x normal
-    bodySize = 15,                          -- ~3x normal
-    glowSize = 30,                          -- ~3x normal
+    coreSize = 6,                           -- ~3x normal (scaled)
+    bodySize = 10,                          -- ~3x normal (scaled)
+    glowSize = 20,                          -- ~3x normal (scaled)
 }
 
--- Drone bolt style (purple, smaller than main turret)
+-- Drone bolt style (purple, smaller than main turret, scaled ~0.67x)
 local DRONE_BOLT = {
     coreColor = {0.95, 0.85, 1.00},         -- White-purple hot core
     bodyColor = {0.70, 0.20, 1.00},         -- Bright purple
     glowColor = {0.70, 0.20, 1.00, 0.3},    -- Purple glow
     trailColor = {0.70, 0.20, 1.00},        -- Purple trail
     trailLength = 6,                         -- Shorter trail
-    coreSize = 2,
-    bodySize = 4,
-    glowSize = 8,
+    coreSize = 1,
+    bodySize = 3,
+    glowSize = 5,
 }
 
 function Projectile:new(x, y, angle, speed, damage)
@@ -86,7 +86,7 @@ function Projectile:update(dt)
     self.pulse = self.pulse + dt * 15
 
     -- Check bounds (off-screen = dead)
-    if self.x < -50 or self.x > 850 or self.y < -50 or self.y > 650 then
+    if self.x < -50 or self.x > WINDOW_WIDTH + 50 or self.y < -50 or self.y > WINDOW_HEIGHT + 50 then
         self.dead = true
     end
 end
@@ -105,8 +105,8 @@ function Projectile:draw()
 end
 
 function Projectile:drawEnergyBolt(pulseAlpha)
-    local width = 28
-    local height = 6
+    local width = 19
+    local height = 4
 
     -- Draw segmented fading trail
     if #self.trail >= 2 then
@@ -154,17 +154,17 @@ function Projectile:drawDroneBolt(pulseAlpha)
 
         -- Outer glow trail
         love.graphics.setColor(DRONE_BOLT.trailColor[1], DRONE_BOLT.trailColor[2], DRONE_BOLT.trailColor[3], 0.15)
-        love.graphics.setLineWidth(6)
+        love.graphics.setLineWidth(4)
         love.graphics.line(trailPoints)
 
         -- Mid glow trail
         love.graphics.setColor(DRONE_BOLT.trailColor[1], DRONE_BOLT.trailColor[2], DRONE_BOLT.trailColor[3], 0.3)
-        love.graphics.setLineWidth(3)
+        love.graphics.setLineWidth(2)
         love.graphics.line(trailPoints)
 
         -- Core trail
         love.graphics.setColor(DRONE_BOLT.trailColor[1], DRONE_BOLT.trailColor[2], DRONE_BOLT.trailColor[3], 0.6)
-        love.graphics.setLineWidth(1.5)
+        love.graphics.setLineWidth(1)
         love.graphics.line(trailPoints)
 
         love.graphics.setLineWidth(1)
@@ -189,8 +189,8 @@ function Projectile:drawDroneBolt(pulseAlpha)
     -- ===================
     -- 3. DRAW DIRECTIONAL TIP
     -- ===================
-    local tipLength = 4
-    local tipWidth = 2
+    local tipLength = 3
+    local tipWidth = 1
 
     local tipX = self.x + math.cos(self.angle) * tipLength
     local tipY = self.y + math.sin(self.angle) * tipLength
@@ -221,17 +221,17 @@ function Projectile:drawPlasma(pulseAlpha)
 
         -- Outer glow trail (very wide purple)
         love.graphics.setColor(PLASMA_COLOR[1], PLASMA_COLOR[2], PLASMA_COLOR[3], 0.2)
-        love.graphics.setLineWidth(24)
+        love.graphics.setLineWidth(16)
         love.graphics.line(trailPoints)
 
         -- Mid glow trail
         love.graphics.setColor(PLASMA_COLOR[1], PLASMA_COLOR[2], PLASMA_COLOR[3], 0.4)
-        love.graphics.setLineWidth(12)
+        love.graphics.setLineWidth(8)
         love.graphics.line(trailPoints)
 
         -- Core trail (white-purple)
         love.graphics.setColor(PLASMA_CORE_COLOR[1], PLASMA_CORE_COLOR[2], PLASMA_CORE_COLOR[3], 0.7)
-        love.graphics.setLineWidth(6)
+        love.graphics.setLineWidth(4)
         love.graphics.line(trailPoints)
 
         love.graphics.setLineWidth(1)
@@ -258,10 +258,10 @@ function Projectile:drawPlasma(pulseAlpha)
     love.graphics.circle("fill", self.x, self.y, PLASMA_BOLT.coreSize)
 
     -- ===================
-    -- 3. DRAW DIRECTIONAL TIP (larger)
+    -- 3. DRAW DIRECTIONAL TIP (larger, scaled ~0.67x)
     -- ===================
-    local tipLength = 18
-    local tipWidth = 9
+    local tipLength = 12
+    local tipWidth = 6
 
     local tipX = self.x + math.cos(self.angle) * tipLength
     local tipY = self.y + math.sin(self.angle) * tipLength
@@ -277,8 +277,8 @@ function Projectile:drawPlasma(pulseAlpha)
     love.graphics.polygon("fill", tipX, tipY, baseX1, baseY1, baseX2, baseY2)
 
     -- Inner tip (white-hot)
-    local innerTipLength = 12
-    local innerTipWidth = 5
+    local innerTipLength = 8
+    local innerTipWidth = 3
     local innerTipX = self.x + math.cos(self.angle) * innerTipLength
     local innerTipY = self.y + math.sin(self.angle) * innerTipLength
     local innerBaseX1 = self.x + math.cos(perpAngle) * innerTipWidth

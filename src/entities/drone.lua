@@ -7,14 +7,14 @@ local Drone = Object:extend()
 local DRONE_COLOR = {0.70, 0.20, 1.00}    -- Bright purple
 local DRONE_FILL = {0.15, 0.04, 0.20}     -- Dark purple fill
 
--- Dimensions (smaller than main turret)
-local BASE_RADIUS = 12
-local BARREL_LENGTH = 18
-local BARREL_WIDTH = 5
-local BARREL_BACK = 5
+-- Dimensions (smaller than main turret, scaled ~0.67x)
+local BASE_RADIUS = 8
+local BARREL_LENGTH = 12
+local BARREL_WIDTH = 3
+local BARREL_BACK = 3
 
--- Orbit parameters
-local ORBIT_RADIUS = 80
+-- Orbit parameters (scaled ~0.67x)
+local ORBIT_RADIUS = 54
 local ORBIT_SPEED = 0.5  -- Radians per second
 
 function Drone:new(parentTurret, orbitIndex, totalDrones)

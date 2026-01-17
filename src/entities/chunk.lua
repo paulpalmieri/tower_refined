@@ -107,12 +107,12 @@ function Chunk:draw()
     local shape = SHAPES[self.fragmentType]
 
     if self.fragmentType == "line" then
-        -- Line fragment
-        love.graphics.setLineWidth(3)
+        -- Line fragment (scaled ~0.67x)
+        love.graphics.setLineWidth(2)
         love.graphics.line(-self.size, 0, self.size, 0)
         if not self.fullySettled then
             love.graphics.setColor(color[1], color[2], color[3], alpha * 0.3)
-            love.graphics.setLineWidth(6)
+            love.graphics.setLineWidth(4)
             love.graphics.line(-self.size, 0, self.size, 0)
         end
         love.graphics.setLineWidth(1)

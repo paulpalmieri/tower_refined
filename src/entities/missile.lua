@@ -77,14 +77,14 @@ function Missile:update(dt)
     self.pulse = self.pulse + dt * 12
 
     -- Check bounds (generous margin for homing)
-    if self.x < -100 or self.x > 900 or self.y < -100 or self.y > 700 then
+    if self.x < -100 or self.x > WINDOW_WIDTH + 100 or self.y < -100 or self.y > WINDOW_HEIGHT + 100 then
         self.dead = true
     end
 end
 
 function Missile:draw()
-    local width = 18
-    local height = 6
+    local width = 12   -- Scaled ~0.67x
+    local height = 4   -- Scaled ~0.67x
 
     -- ===================
     -- 1. DRAW SEGMENTED FADING TRAIL (matches main bullet style)

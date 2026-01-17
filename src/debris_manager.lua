@@ -26,7 +26,7 @@ function DebrisManager:spawnImpactBurst(x, y, angle)
             vx = math.cos(particleAngle) * speed,
             vy = math.sin(particleAngle) * speed,
             color = {0.2, 1, 0.4},  -- Bright green
-            size = lume.random(4, 7),
+            size = lume.random(3, 5),  -- Scaled ~0.67x
             lifetime = lume.random(0.15, 0.3),
             shape = "line",
         })
@@ -49,7 +49,7 @@ function DebrisManager:spawnMinorSpatter(x, y, angle, intensity, color)
             vx = math.cos(particleAngle) * speed,
             vy = math.sin(particleAngle) * speed,
             color = sparkColor,
-            size = lume.random(2, 4),
+            size = lume.random(1, 3),  -- Scaled ~0.67x
             lifetime = lume.random(0.15, 0.3),
             shape = "line",
         })
@@ -61,19 +61,19 @@ function DebrisManager:spawnExplosionBurst(x, y, angle, shape, color, velocity)
     local burstColor = color or NEON_PRIMARY or {0, 1, 0}
     local baseSpeed = math.max(velocity, 400)
 
-    -- Bright center flash (white-tinted, very short-lived)
+    -- Bright center flash (white-tinted, very short-lived, scaled ~0.67x)
     spawnParticle({
         x = x,
         y = y,
         vx = 0,
         vy = 0,
         color = {1, 1, 1},
-        size = 18,
+        size = 12,
         lifetime = 0.08,
         shape = "square",
     })
 
-    -- Shape-matching particle burst (increased from 15 to 20)
+    -- Shape-matching particle burst (increased from 15 to 20, scaled ~0.67x)
     for _ = 1, 20 do
         local sparkAngle = angle + lume.random(-1.1, 1.1)
         local speed = lume.random(baseSpeed * 0.4, baseSpeed * 1.6)
@@ -84,13 +84,13 @@ function DebrisManager:spawnExplosionBurst(x, y, angle, shape, color, velocity)
             vx = math.cos(sparkAngle) * speed,
             vy = math.sin(sparkAngle) * speed,
             color = burstColor,
-            size = lume.random(4, 9),
+            size = lume.random(3, 6),
             lifetime = lume.random(0.3, 0.55),
             shape = shape,
         })
     end
 
-    -- Extra fast sparks that travel further (3 particles)
+    -- Extra fast sparks that travel further (3 particles, scaled ~0.67x)
     for _ = 1, 3 do
         local sparkAngle = angle + lume.random(-0.4, 0.4)
         local speed = baseSpeed * lume.random(1.8, 2.4)
@@ -101,7 +101,7 @@ function DebrisManager:spawnExplosionBurst(x, y, angle, shape, color, velocity)
             vx = math.cos(sparkAngle) * speed,
             vy = math.sin(sparkAngle) * speed,
             color = burstColor,
-            size = lume.random(3, 5),
+            size = lume.random(2, 3),
             lifetime = lume.random(0.4, 0.6),
             shape = "line",
         })
@@ -124,7 +124,7 @@ function DebrisManager:spawnBloodParticles(x, y, angle, shape, color, intensity)
             vx = math.cos(particleAngle) * speed,
             vy = math.sin(particleAngle) * speed,
             color = bloodColor,
-            size = lume.random(4, 7),
+            size = lume.random(3, 5),  -- Scaled ~0.67x
             lifetime = lume.random(0.3, 0.5),
             shape = shape,
         })
@@ -144,7 +144,7 @@ function DebrisManager:spawnTrailSparks(x, y)
         vx = math.cos(angle) * speed,
         vy = math.sin(angle) * speed,
         color = NEON_PRIMARY_DIM or {0, 0.5, 0},
-        size = lume.random(1, 3),
+        size = lume.random(1, 2),  -- Scaled ~0.67x
         lifetime = lume.random(0.2, 0.4),
         shape = "square",
     })
@@ -156,7 +156,7 @@ function DebrisManager:spawnShieldKillBurst(x, y, angle, enemyColor)
     local sparkColor = {0.3, 0.9, 1.0}
     local burstAngle = angle + math.pi  -- Outward from turret
 
-    -- Electric arcs (line particles)
+    -- Electric arcs (line particles, scaled ~0.67x)
     for _ = 1, 8 do
         local arcAngle = burstAngle + lume.random(-1.2, 1.2)
         local speed = lume.random(250, 450)
@@ -167,13 +167,13 @@ function DebrisManager:spawnShieldKillBurst(x, y, angle, enemyColor)
             vx = math.cos(arcAngle) * speed,
             vy = math.sin(arcAngle) * speed,
             color = sparkColor,
-            size = lume.random(5, 10),
+            size = lume.random(3, 7),
             lifetime = lume.random(0.2, 0.4),
             shape = "line",
         })
     end
 
-    -- Enemy-colored fragments
+    -- Enemy-colored fragments (scaled ~0.67x)
     for _ = 1, 6 do
         local fragAngle = lume.random(0, math.pi * 2)
         local speed = lume.random(150, 300)
@@ -184,7 +184,7 @@ function DebrisManager:spawnShieldKillBurst(x, y, angle, enemyColor)
             vx = math.cos(fragAngle) * speed,
             vy = math.sin(fragAngle) * speed,
             color = enemyColor,
-            size = lume.random(3, 6),
+            size = lume.random(2, 4),
             lifetime = lume.random(0.3, 0.5),
             shape = "square",
         })
@@ -198,7 +198,7 @@ function DebrisManager:spawnMissileExplosion(x, y, angle)
     local baseSpeed = MISSILE_EXPLOSION_VELOCITY or 200
     local particleCount = MISSILE_EXPLOSION_PARTICLES or 8
 
-    -- Orange explosion particles
+    -- Orange explosion particles (scaled ~0.67x)
     for _ = 1, particleCount do
         local sparkAngle = angle + lume.random(-1.2, 1.2)
         local speed = lume.random(baseSpeed * 0.5, baseSpeed * 1.5)
@@ -209,13 +209,13 @@ function DebrisManager:spawnMissileExplosion(x, y, angle)
             vx = math.cos(sparkAngle) * speed,
             vy = math.sin(sparkAngle) * speed,
             color = burstColor,
-            size = lume.random(3, 6),
+            size = lume.random(2, 4),
             lifetime = lume.random(0.25, 0.45),
             shape = "square",
         })
     end
 
-    -- Core flash particles (white-orange)
+    -- Core flash particles (white-orange, scaled ~0.67x)
     for _ = 1, 4 do
         local flashAngle = lume.random(0, math.pi * 2)
         local speed = lume.random(80, 150)
@@ -226,7 +226,7 @@ function DebrisManager:spawnMissileExplosion(x, y, angle)
             vx = math.cos(flashAngle) * speed,
             vy = math.sin(flashAngle) * speed,
             color = coreColor,
-            size = lume.random(2, 4),
+            size = lume.random(1, 3),
             lifetime = lume.random(0.15, 0.25),
             shape = "square",
         })

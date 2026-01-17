@@ -35,16 +35,20 @@ DebugConsole = require "src.debug_console"
 SkillTree = require "src.skilltree"
 PostFX = require "src.postfx"
 Intro = require "src.intro"
+SettingsMenu = require "src.settings_menu"
+CompositeEnemy = require "src.entities.composite_enemy"
+require "src.composite_templates"
 
 -- ===================
 -- GAME STATE
 -- ===================
-local gameState = "playing"    -- "intro", "playing", "gameover", "skilltree"
+local gameState = "playing"    -- "intro", "playing", "gameover", "skilltree", "settings"
+local previousState = nil      -- Track state before settings opened
 gameSpeedIndex = 4             -- Index into GAME_SPEEDS (starts at 1x)
 local debugMode = false        -- Toggle with F3
 local godMode = false          -- Toggle with G (tower invincibility)
 local autoFire = false         -- Toggle with A (auto-fire mode)
-local isFullscreen = false     -- Toggle with B (borderless fullscreen)
+isFullscreen = false           -- Toggle with B (borderless fullscreen) - global for settings menu
 
 -- ===================
 -- SCALING SYSTEM
@@ -76,8 +80,8 @@ local function getMousePosition()
     return screenToGame(mx, my)
 end
 
--- Toggle fullscreen mode
-local function toggleFullscreen()
+-- Toggle fullscreen mode (global for settings menu)
+function toggleFullscreen()
     isFullscreen = not isFullscreen
     love.window.setFullscreen(isFullscreen, "desktop")
     updateScale()
@@ -86,6 +90,7 @@ end
 -- Entities
 tower = nil
 enemies = {}
+compositeEnemies = {}  -- Composite enemies with hierarchical structure
 projectiles = {}
 particles = {}
 damageNumbers = {}
@@ -821,6 +826,40 @@ local function spawnEnemy()
     table.insert(enemies, enemy)
 end
 
+local function spawnCompositeEnemy(templateName)
+    local template = COMPOSITE_TEMPLATES[templateName]
+    if not template then return end
+
+    -- Spawn from outside the visible area
+    local angle = lume.random(0, math.pi * 2)
+    local distance = SPAWN_DISTANCE
+    local x = CENTER_X + math.cos(angle) * distance
+    local y = CENTER_Y + math.sin(angle) * distance
+
+    local composite = CompositeEnemy(x, y, template, 0)
+    table.insert(compositeEnemies, composite)
+end
+
+-- Spawn a random composite enemy based on game time
+local function spawnRandomComposite()
+    -- Available templates weighted by difficulty
+    local templates = {"half_shielded_square", "shielded_square"}
+
+    -- Add harder templates as game progresses
+    if gameTime > 45 then
+        table.insert(templates, "shielded_pentagon")
+    end
+    if gameTime > 90 then
+        table.insert(templates, "half_shielded_hexagon")
+    end
+    if gameTime > 150 then
+        table.insert(templates, "shielded_hexagon")
+    end
+
+    local templateName = templates[math.random(#templates)]
+    spawnCompositeEnemy(templateName)
+end
+
 -- ===================
 -- PROJECTILE SYSTEM
 -- ===================
@@ -846,6 +885,17 @@ local function findNearestEnemy(x, y, excludeEnemy)
             local dist = enemy:distanceTo(x, y)
             if dist < nearestDist then
                 nearest = enemy
+                nearestDist = dist
+            end
+        end
+    end
+
+    -- Also check composite enemies
+    for _, composite in ipairs(compositeEnemies) do
+        if not composite.dead and composite ~= excludeEnemy then
+            local dist = composite:distanceTo(x, y)
+            if dist < nearestDist then
+                nearest = composite
                 nearestDist = dist
             end
         end
@@ -940,7 +990,7 @@ local function drawUI()
     local minutes = math.floor(gameTime / 60)
     local seconds = math.floor(gameTime % 60)
     love.graphics.print(string.format("Time: %d:%02d", minutes, seconds), 10, 10)
-    love.graphics.print("Enemies: " .. #enemies, 10, 30)
+    love.graphics.print("Enemies: " .. (#enemies + #compositeEnemies), 10, 30)
 
     -- Game speed indicator
     local currentSpeed = GAME_SPEEDS[gameSpeedIndex]
@@ -1257,6 +1307,7 @@ function startNewRun()
 
     -- Reset game state
     enemies = {}
+    compositeEnemies = {}
     projectiles = {}
     particles = {}
     damageNumbers = {}
@@ -1287,6 +1338,21 @@ function startNewRun()
     gameTime = 0
     spawnAccumulator = 0
     currentSpawnRate = SPAWN_RATE
+
+    -- TEST: Spawn one of each composite template for testing
+    local testTemplates = {}
+    for name, _ in pairs(COMPOSITE_TEMPLATES) do
+        table.insert(testTemplates, name)
+    end
+    table.sort(testTemplates)  -- Consistent order
+    local spawnRadius = 300
+    for i, templateName in ipairs(testTemplates) do
+        local angle = (i - 1) * (2 * math.pi / #testTemplates)
+        local x = CENTER_X + math.cos(angle) * spawnRadius
+        local y = CENTER_Y + math.sin(angle) * spawnRadius
+        local composite = CompositeEnemy(x, y, COMPOSITE_TEMPLATES[templateName], 0)
+        table.insert(compositeEnemies, composite)
+    end
 
     -- Reset feedback, debris, and lighting state
     Feedback:reset()
@@ -1364,6 +1430,7 @@ function love.load()
     Lighting:init()
     DebugConsole:init()
     SkillTree:init()
+    SettingsMenu:init()
     PostFX:init()
     Intro:init()
     initGround()
@@ -1407,6 +1474,12 @@ function love.update(dt)
         return
     end
 
+    -- Update settings menu if active
+    if gameState == "settings" then
+        SettingsMenu:update(dt)
+        return
+    end
+
     if gameState == "gameover" then
         return
     end
@@ -1427,10 +1500,18 @@ function love.update(dt)
     gameTime = gameTime + gameDt
     currentSpawnRate = SPAWN_RATE + (gameTime * SPAWN_RATE_INCREASE)
 
+    local totalEnemyCount = #enemies + #compositeEnemies
     spawnAccumulator = spawnAccumulator + gameDt * currentSpawnRate
-    while spawnAccumulator >= 1 and #enemies < MAX_ENEMIES do
+    while spawnAccumulator >= 1 and totalEnemyCount < MAX_ENEMIES do
         spawnAccumulator = spawnAccumulator - 1
-        spawnEnemy()
+
+        -- 15% chance to spawn composite (after 10 seconds), otherwise regular enemy
+        if gameTime > 10 and lume.random() < 0.15 then
+            spawnRandomComposite()
+        else
+            spawnEnemy()
+        end
+        totalEnemyCount = totalEnemyCount + 1
     end
 
     -- Find target for tower (only used in auto-fire mode)
@@ -1675,6 +1756,30 @@ function love.update(dt)
         end
     end
 
+    -- Update composite enemies
+    for i = #compositeEnemies, 1, -1 do
+        local composite = compositeEnemies[i]
+        composite:update(gameDt)
+
+        -- Check tower collision (any node touching tower)
+        if composite:checkTowerCollision() then
+            if not godMode then
+                local destroyed = tower:takeDamage(ENEMY_CONTACT_DAMAGE)
+                if destroyed then
+                    gameState = "gameover"
+                    Sounds.stopMusic()
+                end
+            end
+            -- Kill the composite and all children
+            local deathAngle = math.atan2(composite.worldY - tower.y, composite.worldX - tower.x)
+            composite:die(deathAngle)
+        end
+
+        if composite.dead then
+            table.remove(compositeEnemies, i)
+        end
+    end
+
     -- Update projectiles (uses gameDt for gameplay freeze)
     for i = #projectiles, 1, -1 do
         local proj = projectiles[i]
@@ -1726,6 +1831,70 @@ function love.update(dt)
                 if not proj.piercing then
                     proj.dead = true
                     break
+                end
+            end
+        end
+
+        -- Check collision with composite enemies (hierarchical hit detection)
+        if not proj.dead then
+            proj.hitComposites = proj.hitComposites or {}
+            for _, composite in ipairs(compositeEnemies) do
+                if not composite.dead and not proj.hitComposites[composite] then
+                    -- Find which node gets hit (outermost children first)
+                    local hitNode, _, hitX, hitY, isGapHit = composite:findHitNode(
+                        proj.x, proj.y, proj.prevX, proj.prevY
+                    )
+
+                    if hitNode then
+                        proj.hitComposites[composite] = true
+
+                        -- Calculate bullet speed
+                        local bulletSpeed = math.sqrt(proj.vx * proj.vx + proj.vy * proj.vy)
+
+                        -- Deal damage to the specific node hit
+                        local killed, flyingPartsData, _, detachedChildren = hitNode:takeDamageOnNode(
+                            proj.damage, proj.angle, {
+                                velocity = bulletSpeed,
+                                bulletX = proj.x,
+                                bulletY = proj.y,
+                                prevX = proj.prevX,
+                                prevY = proj.prevY,
+                                isGapHit = isGapHit,
+                            }
+                        )
+
+                        -- Spawn flying parts
+                        for _, partData in ipairs(flyingPartsData) do
+                            table.insert(flyingParts, FlyingPart(partData))
+                        end
+
+                        -- Handle detached children (add them as independent composite enemies)
+                        for _, child in ipairs(detachedChildren) do
+                            table.insert(compositeEnemies, child)
+                        end
+
+                        -- Show damage number
+                        local displayDamage = math.floor(proj.damage * (isGapHit and GAP_DAMAGE_BONUS or 1))
+                        spawnDamageNumber(hitX, hitY - 10, displayDamage, isGapHit and "crit" or nil)
+
+                        if killed then
+                            totalKills = totalKills + 1
+                            local goldAmount = math.floor(GOLD_PER_KILL * stats.goldMultiplier)
+                            gold = gold + goldAmount
+                            totalGold = totalGold + goldAmount
+                            spawnDamageNumber(hitNode.worldX, hitNode.worldY - 20, goldAmount, "gold")
+                            spawnShardCluster(hitNode.worldX, hitNode.worldY, hitNode.shapeName, hitNode.maxHp)
+
+                            -- Trigger feedback
+                            Feedback:trigger("enemy_death")
+                        end
+
+                        -- Destroy projectile if not piercing
+                        if not proj.piercing then
+                            proj.dead = true
+                            break
+                        end
+                    end
                 end
             end
         end
@@ -1808,6 +1977,16 @@ function love.draw()
         return
     end
 
+    -- Settings menu: CRT only (no game effects)
+    if gameState == "settings" then
+        SettingsMenu:draw()
+        drawScopeCursor()
+        DebugConsole:draw()
+        love.graphics.pop()
+        PostFX:endCRT()
+        return
+    end
+
     -- === GAMEPLAY: Apply post-processing to game world only ===
     PostFX:beginCapture()
 
@@ -1834,6 +2013,11 @@ function love.draw()
     -- 4. Enemies
     for _, enemy in ipairs(enemies) do
         enemy:draw()
+    end
+
+    -- 4.5 Composite enemies
+    for _, composite in ipairs(compositeEnemies) do
+        composite:draw()
     end
 
     -- 5. Tower
@@ -1979,12 +2163,24 @@ function love.keypressed(key)
         return
     end
 
+    -- Settings state
+    if gameState == "settings" then
+        local action = SettingsMenu:keypressed(key)
+        if action == "close" then
+            gameState = previousState or "playing"
+        end
+        return
+    end
+
     -- Skill tree state
     if gameState == "skilltree" then
         if key == "escape" then
             love.event.quit()
         elseif key == "b" then
             toggleFullscreen()
+        elseif key == "o" then
+            previousState = gameState
+            gameState = "settings"
         else
             local action = SkillTree:keypressed(key)
             if action == "play" then
@@ -2007,6 +2203,9 @@ function love.keypressed(key)
             SkillTree:startTransition()
         elseif key == "b" then
             toggleFullscreen()
+        elseif key == "o" then
+            previousState = gameState
+            gameState = "settings"
         end
         return
     end
@@ -2027,6 +2226,9 @@ function love.keypressed(key)
         autoFire = not autoFire
     elseif key == "b" then
         toggleFullscreen()
+    elseif key == "o" then
+        previousState = gameState
+        gameState = "settings"
     end
 end
 

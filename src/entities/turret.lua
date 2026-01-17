@@ -8,11 +8,11 @@ local BASE_COLOR = {0.00, 1.00, 0.00}       -- Bright green
 local BASE_FILL = {0.00, 0.15, 0.00}        -- Dark green fill
 local BARREL_COLOR = {0.00, 1.00, 0.00}     -- Bright green
 
--- Dimensions
-local BASE_RADIUS = 35
-local BARREL_LENGTH = 50
-local BARREL_WIDTH = 14
-local BARREL_BACK = 15  -- How far barrel extends behind center
+-- Dimensions (scaled ~0.67x for larger play area)
+local BASE_RADIUS = 23
+local BARREL_LENGTH = 33
+local BARREL_WIDTH = 9
+local BARREL_BACK = 10  -- How far barrel extends behind center
 
 function Turret:new(x, y)
     self.x = x

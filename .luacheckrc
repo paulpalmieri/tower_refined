@@ -423,6 +423,10 @@ globals = {
     "COMPOSITE_DETACH_SCATTER",
     "COMPOSITE_DETACH_SPIN",
     "SHAPE_COLORS",
+
+    -- Camera system
+    "Camera",
+    "PLAYER_MOVE_SPEED",
 }
 
 -- Exclude library files from linting

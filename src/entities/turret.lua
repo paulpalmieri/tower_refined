@@ -30,9 +30,38 @@ function Turret:new(x, y)
     self.muzzleFlash = 0
     self.gunKick = 0
     self.damageFlinch = 0
+
+    -- Movement
+    self.moveSpeed = PLAYER_MOVE_SPEED
 end
 
 function Turret:update(dt, targetX, targetY)
+    -- WASD movement
+    local moveX, moveY = 0, 0
+    if love.keyboard.isDown("w") or love.keyboard.isDown("up") then
+        moveY = -1
+    end
+    if love.keyboard.isDown("s") or love.keyboard.isDown("down") then
+        moveY = 1
+    end
+    if love.keyboard.isDown("a") or love.keyboard.isDown("left") then
+        moveX = -1
+    end
+    if love.keyboard.isDown("d") or love.keyboard.isDown("right") then
+        moveX = 1
+    end
+
+    -- Normalize diagonal movement
+    if moveX ~= 0 and moveY ~= 0 then
+        local len = math.sqrt(moveX * moveX + moveY * moveY)
+        moveX = moveX / len
+        moveY = moveY / len
+    end
+
+    -- Apply movement
+    self.x = self.x + moveX * self.moveSpeed * dt
+    self.y = self.y + moveY * self.moveSpeed * dt
+
     if targetX and targetY then
         self.targetAngle = math.atan2(targetY - self.y, targetX - self.x)
     end

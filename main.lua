@@ -38,6 +38,7 @@ Intro = require "src.intro"
 SettingsMenu = require "src.settings_menu"
 CompositeEnemy = require "src.entities.composite_enemy"
 require "src.composite_templates"
+Camera = require "src.camera"
 
 -- ===================
 -- GAME STATE
@@ -74,10 +75,17 @@ local function screenToGame(screenX, screenY)
     return gameX, gameY
 end
 
--- Get mouse position in game coordinates
-local function getMousePosition()
+-- Get mouse position in game coordinates (scaled)
+local function getMousePositionScaled()
     local mx, my = love.mouse.getPosition()
     return screenToGame(mx, my)
+end
+
+-- Get mouse position in world coordinates (accounting for camera)
+local function getMousePosition()
+    local mx, my = love.mouse.getPosition()
+    local gx, gy = screenToGame(mx, my)
+    return Camera:screenToWorld(gx, gy)
 end
 
 -- Toggle fullscreen mode (global for settings menu)
@@ -801,11 +809,27 @@ end
 -- SPAWN SYSTEM (Continuous)
 -- ===================
 local function spawnEnemy()
-    -- Spawn from outside the visible area
-    local angle = lume.random(0, math.pi * 2)
-    local distance = SPAWN_DISTANCE
-    local x = CENTER_X + math.cos(angle) * distance
-    local y = CENTER_Y + math.sin(angle) * distance
+    -- Spawn from just outside visible area (edge spawning)
+    local left, top, right, bottom = Camera:getBounds()
+    local margin = 100  -- Spawn margin outside visible area
+
+    -- Pick random edge (0=top, 1=right, 2=bottom, 3=left)
+    local edge = math.random(0, 3)
+    local x, y
+
+    if edge == 0 then  -- Top
+        x = lume.random(left - margin, right + margin)
+        y = top - margin
+    elseif edge == 1 then  -- Right
+        x = right + margin
+        y = lume.random(top - margin, bottom + margin)
+    elseif edge == 2 then  -- Bottom
+        x = lume.random(left - margin, right + margin)
+        y = bottom + margin
+    else  -- Left
+        x = left - margin
+        y = lume.random(top - margin, bottom + margin)
+    end
 
     -- Determine enemy type - all types available from start
     local enemyType = "basic"
@@ -830,11 +854,26 @@ local function spawnCompositeEnemy(templateName)
     local template = COMPOSITE_TEMPLATES[templateName]
     if not template then return end
 
-    -- Spawn from outside the visible area
-    local angle = lume.random(0, math.pi * 2)
-    local distance = SPAWN_DISTANCE
-    local x = CENTER_X + math.cos(angle) * distance
-    local y = CENTER_Y + math.sin(angle) * distance
+    -- Spawn from just outside visible area (edge spawning)
+    local left, top, right, bottom = Camera:getBounds()
+    local margin = 100
+
+    local edge = math.random(0, 3)
+    local x, y
+
+    if edge == 0 then  -- Top
+        x = lume.random(left - margin, right + margin)
+        y = top - margin
+    elseif edge == 1 then  -- Right
+        x = right + margin
+        y = lume.random(top - margin, bottom + margin)
+    elseif edge == 2 then  -- Bottom
+        x = lume.random(left - margin, right + margin)
+        y = bottom + margin
+    else  -- Left
+        x = left - margin
+        y = lume.random(top - margin, bottom + margin)
+    end
 
     local composite = CompositeEnemy(x, y, template, 0)
     table.insert(compositeEnemies, composite)
@@ -908,29 +947,36 @@ end
 -- ARENA DRAWING
 -- ===================
 
--- Draw geometric grid floor
+-- Draw geometric grid floor (infinite scrolling)
 local function drawArenaFloor()
-    -- Fill with obsidian background
-    love.graphics.setColor(NEON_BACKGROUND[1], NEON_BACKGROUND[2], NEON_BACKGROUND[3])
-    love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
+    -- Get camera bounds
+    local left, top, right, bottom = Camera:getBounds()
 
-    -- Draw grid lines with distance-based fade
+    -- Fill with obsidian background (cover visible area)
+    love.graphics.setColor(NEON_BACKGROUND[1], NEON_BACKGROUND[2], NEON_BACKGROUND[3])
+    love.graphics.rectangle("fill", left - GRID_SIZE, top - GRID_SIZE, WINDOW_WIDTH + GRID_SIZE * 2, WINDOW_HEIGHT + GRID_SIZE * 2)
+
+    -- Draw grid lines with distance-based fade from camera center
     love.graphics.setLineWidth(GRID_LINE_WIDTH)
 
+    -- Calculate grid offset (snap to grid)
+    local gridStartX = math.floor(left / GRID_SIZE) * GRID_SIZE
+    local gridStartY = math.floor(top / GRID_SIZE) * GRID_SIZE
+
     -- Vertical lines
-    for x = 0, WINDOW_WIDTH, GRID_SIZE do
-        local distFromCenter = math.abs(x - CENTER_X)
-        local alpha = 0.4 * (1 - (distFromCenter / (WINDOW_WIDTH / 2)) * 0.7)
+    for x = gridStartX, right + GRID_SIZE, GRID_SIZE do
+        local distFromCenter = math.abs(x - Camera.x)
+        local alpha = 0.4 * (1 - math.min(1, distFromCenter / (WINDOW_WIDTH / 2)) * 0.7)
         love.graphics.setColor(NEON_GRID[1], NEON_GRID[2], NEON_GRID[3], alpha)
-        love.graphics.line(x, 0, x, WINDOW_HEIGHT)
+        love.graphics.line(x, top - GRID_SIZE, x, bottom + GRID_SIZE)
     end
 
     -- Horizontal lines
-    for y = 0, WINDOW_HEIGHT, GRID_SIZE do
-        local distFromCenter = math.abs(y - CENTER_Y)
-        local alpha = 0.4 * (1 - (distFromCenter / (WINDOW_HEIGHT / 2)) * 0.7)
+    for y = gridStartY, bottom + GRID_SIZE, GRID_SIZE do
+        local distFromCenter = math.abs(y - Camera.y)
+        local alpha = 0.4 * (1 - math.min(1, distFromCenter / (WINDOW_HEIGHT / 2)) * 0.7)
         love.graphics.setColor(NEON_GRID[1], NEON_GRID[2], NEON_GRID[3], alpha)
-        love.graphics.line(0, y, WINDOW_WIDTH, y)
+        love.graphics.line(left - GRID_SIZE, y, right + GRID_SIZE, y)
     end
 
     love.graphics.setLineWidth(1)
@@ -941,8 +987,8 @@ end
 -- ===================
 local function drawScopeCursor()
     -- Draw crosshair cursor in all game states
-
-    local mx, my = getMousePosition()
+    -- Use screen coordinates (not world) since this is drawn outside camera transform
+    local mx, my = getMousePositionScaled()
     -- Snap to pixels for crisp pixely look
     mx, my = math.floor(mx), math.floor(my)
 
@@ -997,16 +1043,16 @@ local function drawUI()
     local speedText
     if currentSpeed == 0 then
         love.graphics.setColor(NEON_RED[1], NEON_RED[2], NEON_RED[3], 0.9)
-        speedText = "PAUSED [S]"
+        speedText = "PAUSED [Z]"
     elseif currentSpeed < 1 then
         love.graphics.setColor(NEON_CYAN[1], NEON_CYAN[2], NEON_CYAN[3], 0.9)
-        speedText = "Speed: " .. currentSpeed .. "x [S]"
+        speedText = "Speed: " .. currentSpeed .. "x [Z]"
     elseif currentSpeed > 1 then
         love.graphics.setColor(NEON_YELLOW[1], NEON_YELLOW[2], NEON_YELLOW[3], 0.9)
-        speedText = "Speed: " .. currentSpeed .. "x [S]"
+        speedText = "Speed: " .. currentSpeed .. "x [Z]"
     else
         love.graphics.setColor(NEON_PRIMARY_DIM[1], NEON_PRIMARY_DIM[2], NEON_PRIMARY_DIM[3], 0.7)
-        speedText = "Speed: " .. currentSpeed .. "x [S]"
+        speedText = "Speed: " .. currentSpeed .. "x [Z]"
     end
     love.graphics.print(speedText, 10, 50)
 
@@ -1020,10 +1066,10 @@ local function drawUI()
     local autoFireY = godMode and 90 or 70
     if autoFire then
         love.graphics.setColor(NEON_PRIMARY_DIM[1], NEON_PRIMARY_DIM[2], NEON_PRIMARY_DIM[3], 0.7)
-        love.graphics.print("Auto-Fire: ON [A]", 10, autoFireY)
+        love.graphics.print("Auto-Fire: ON [X]", 10, autoFireY)
     else
         love.graphics.setColor(NEON_RED[1], NEON_RED[2], NEON_RED[3], 0.9)
-        love.graphics.print("Manual Aim [A]", 10, autoFireY)
+        love.graphics.print("Manual Aim [X]", 10, autoFireY)
     end
 
     -- Tower HP bar with neon styling
@@ -1300,6 +1346,9 @@ function startNewRun()
 
     -- Create tower with upgraded HP
     tower = Turret(CENTER_X, CENTER_Y)
+
+    -- Initialize camera to follow tower
+    Camera:init(tower.x, tower.y)
     tower.maxHp = TOWER_HP + stats.maxHp
     tower.hp = tower.maxHp
     tower.fireRate = TOWER_FIRE_RATE / stats.fireRate
@@ -1538,6 +1587,9 @@ function love.update(dt)
             fireProjectile()
         end
     end
+
+    -- Update camera to follow tower
+    Camera:update(tower.x, tower.y)
 
     -- Update drones
     for _, drone in ipairs(drones) do
@@ -1995,6 +2047,9 @@ function love.draw()
     love.graphics.push()
     love.graphics.translate(shakeX, shakeY)
 
+    -- Apply camera transform
+    Camera:apply()
+
     -- 1. Ground (pixelated grass environment)
     drawArenaFloor()
 
@@ -2065,6 +2120,9 @@ function love.draw()
 
     -- 10. Visual effects (non-text)
     drawParticles()
+
+    -- End camera transform
+    Camera:reset()
 
     love.graphics.pop()  -- End shake transform
 
@@ -2145,8 +2203,8 @@ function love.keypressed(key)
         return
     end
 
-    -- S cycles game speed
-    if key == "s" and gameState == "playing" then
+    -- Z cycles game speed
+    if key == "z" and gameState == "playing" then
         gameSpeedIndex = (gameSpeedIndex % #GAME_SPEEDS) + 1
         return
     end
@@ -2222,7 +2280,7 @@ function love.keypressed(key)
         startNewRun()
     elseif key == "g" then
         godMode = not godMode
-    elseif key == "a" then
+    elseif key == "x" then
         autoFire = not autoFire
     elseif key == "b" then
         toggleFullscreen()

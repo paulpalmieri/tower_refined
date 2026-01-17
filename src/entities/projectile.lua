@@ -85,8 +85,10 @@ function Projectile:update(dt)
     -- Pulse animation
     self.pulse = self.pulse + dt * 15
 
-    -- Check bounds (off-screen = dead)
-    if self.x < -50 or self.x > WINDOW_WIDTH + 50 or self.y < -50 or self.y > WINDOW_HEIGHT + 50 then
+    -- Check bounds (off-screen = dead) using camera bounds with margin
+    local left, top, right, bottom = Camera:getBounds()
+    local margin = 100  -- Extra margin before dying
+    if self.x < left - margin or self.x > right + margin or self.y < top - margin or self.y > bottom + margin then
         self.dead = true
     end
 end

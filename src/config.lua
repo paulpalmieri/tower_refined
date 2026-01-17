@@ -56,6 +56,7 @@ TOWER_HP = 100
 TOWER_FIRE_RATE = 0.2
 PROJECTILE_SPEED = 700
 PROJECTILE_DAMAGE = 1
+PLAYER_MOVE_SPEED = 200
 
 -- ===================
 -- ENEMY SHAPES (vertices normalized, pointing up)

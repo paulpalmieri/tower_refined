@@ -835,20 +835,115 @@ end
 
 ---
 
+## 7. Refactoring Progress
+
+**Last Updated:** January 17, 2026
+
+### Completed Phases
+
+| Phase | Description | Status | Lines Saved |
+|-------|-------------|--------|-------------|
+| 1 | EventBus implementation | ✅ Complete | Foundation |
+| 2 | EntityManager extraction | ✅ Complete | ~100 lines |
+| 3 | State Machines (Laser, Plasma, GameOver) | ✅ Complete | ~400 lines |
+| 4 | CollisionManager & AbilityManager creation | ✅ Complete | Foundation |
+| 5 | Entity Decoupling (events for effects) | ✅ Complete | Cleaner code |
+| 6 | Manager Integration into main.lua | ✅ Complete | ~232 lines |
+
+### Line Count Progress
+
+| Milestone | main.lua Lines |
+|-----------|----------------|
+| Original (audit start) | 2,977 |
+| After Phase 1-5 | 2,553 |
+| After Phase 6 | **2,321** |
+| Target | ~1,800 |
+
+**Total reduction so far: 656 lines (22%)**
+
+### Phase 6 Details (Just Completed)
+
+Replaced 12 inline collision loops with manager calls:
+
+| Collision Type | Manager Method |
+|----------------|----------------|
+| Drone projectile vs shard | `CollisionManager:processDroneProjectileVsShards()` |
+| Missile vs enemy | `CollisionManager:processMissileVsEnemies()` |
+| Shield vs enemy | `CollisionManager:processShieldVsEnemies()` |
+| Enemy attacks | `AbilityManager:processEnemyAttacks()` |
+| Enemy vs tower | `CollisionManager:processEnemyVsTower()` |
+| Composite vs tower | `CollisionManager:processCompositeVsTower()` |
+| Projectile vs enemy | `CollisionManager:processProjectileVsEnemies()` |
+| Projectile vs composite | `CollisionManager:processProjectileVsComposites()` |
+| Projectile vs shard | `CollisionManager:processProjectileVsShards()` |
+| Enemy projectile vs tower | `CollisionManager:processEnemyProjectileVsTower()` |
+| AoE warnings | `CollisionManager:processAoEWarnings()` |
+| Damage aura | `AbilityManager:processDamageAura()` |
+
+Added helper functions:
+- `processCollisionResults()` - Handles flying parts, shards, damage numbers, gold/kills
+- `checkTowerDestroyed()` - Triggers game over on tower destruction
+
+### Remaining Work
+
+#### Phase 7: Replace syncRogueliteAbilities (Estimated: ~50 lines saved)
+- Current: 75-line function in main.lua creates/updates abilities
+- Action: Use `AbilityManager:syncRogueliteAbilities()` (already implemented)
+- Replace inline function with manager call
+
+#### Phase 8: Entity Array Migration to EntityManager (Estimated: ~100 lines saved)
+- Move 17 global arrays to EntityManager
+- Replace direct array access with manager methods
+- Consolidate cleanup loops
+
+#### Phase 9: Spawn System Extraction (Estimated: ~100 lines saved)
+- Extract enemy spawning logic to SpawnManager
+- Move wave progression logic out of main.lua
+- Consolidate spawn rate calculations
+
+#### Phase 10: UI/Draw Consolidation (Estimated: ~200 lines saved)
+- Extract HUD drawing to separate module
+- Consolidate draw state handling
+- Remove draw code from main.lua
+
+### Current Architecture
+
+```
+src/
+├── event_bus.lua           ✅ Implemented
+├── entity_manager.lua      ✅ Implemented (not fully integrated)
+├── collision_manager.lua   ✅ Implemented & Integrated
+├── ability_manager.lua     ✅ Implemented & Integrated
+├── systems/
+│   ├── laser_system.lua    ✅ Implemented
+│   ├── plasma_system.lua   ✅ Implemented
+│   └── gameover_system.lua ✅ Implemented
+└── entities/               ✅ Decoupled via events
+```
+
+---
+
 ## Conclusion
 
-The Tower Refined codebase has reached a critical inflection point. The 2,977-line main.lua is the primary source of complexity and must be addressed before adding new features.
+The Tower Refined codebase has reached a critical inflection point. The ~~2,977-line~~ **2,321-line** main.lua is still the primary source of complexity but significant progress has been made.
 
-**Recommended approach:**
+**Completed:**
 
-1. **Week 1:** Extract EntityManager and CollisionManager
-2. **Week 2:** Implement EventBus and decouple entity → global calls
-3. **Week 3:** Extract state machines (Laser, Plasma, GameOver)
-4. **Week 4:** Create AbilityManager, fix flag-based attacks
+1. ✅ **Week 1:** Extract EntityManager and CollisionManager
+2. ✅ **Week 2:** Implement EventBus and decouple entity → global calls
+3. ✅ **Week 3:** Extract state machines (Laser, Plasma, GameOver)
+4. ✅ **Week 4:** Create AbilityManager, integrate collision managers
+
+**Next steps:**
+
+5. **Phase 7:** Replace syncRogueliteAbilities with AbilityManager call
+6. **Phase 8:** Migrate entity arrays to EntityManager
+7. **Phase 9:** Extract SpawnManager
+8. **Phase 10:** UI/Draw consolidation
 
 Each phase can be tested independently. The game should remain functional throughout refactoring by maintaining the same external behavior while improving internal structure.
 
-**Expected outcome:** main.lua reduced to ~500 lines, subsystems testable in isolation, adding new features no longer requires understanding entire codebase.
+**Expected outcome:** main.lua reduced to ~1,500-1,800 lines, subsystems testable in isolation, adding new features no longer requires understanding entire codebase.
 
 ---
 

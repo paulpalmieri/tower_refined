@@ -306,6 +306,44 @@ function spawnShardCluster(x, y, shapeName, count)
     end
 end
 
+-- Forward declaration for initGameOverAnim (defined later)
+local initGameOverAnim
+
+-- Helper to process collision results from manager calls
+-- Handles common patterns: flying parts, shards, damage numbers, gold/kills
+local function processCollisionResults(results)
+    -- Add flying parts
+    for _, partData in ipairs(results.flyingParts or {}) do
+        table.insert(flyingParts, FlyingPart(partData))
+    end
+
+    -- Spawn shards at kill locations
+    for _, shardData in ipairs(results.shardsToSpawn or {}) do
+        spawnShardCluster(shardData.x, shardData.y, shardData.shapeName, shardData.count)
+    end
+
+    -- Spawn damage numbers
+    for _, numData in ipairs(results.damageNumbers or {}) do
+        spawnDamageNumber(numData.x, numData.y, numData.amount, numData.type)
+    end
+
+    -- Update gold and kills
+    gold = gold + (results.goldEarned or 0)
+    totalGold = totalGold + (results.goldEarned or 0)
+    totalKills = totalKills + #(results.kills or {})
+end
+
+-- Helper to check if tower was destroyed and trigger game over
+local function checkTowerDestroyed(results)
+    if results.towerDestroyed and not godMode then
+        gameState = "gameover"
+        initGameOverAnim()
+        Sounds.stopMusic()
+        return true
+    end
+    return false
+end
+
 local function updateCollectibleShards(dt, towerX, towerY)
     -- Calculate pickup radius based on skill tree and roguelite upgrades
     local pickupRadius = POLYGON_PICKUP_RADIUS_BASE * stats.pickupRadius * Roguelite.runtimeStats.pickupRadiusMult
@@ -1016,7 +1054,7 @@ local function drawUI()
 end
 
 -- Initialize game over animation
-local function initGameOverAnim()
+initGameOverAnim = function()
     GameOverSystem:start()
 end
 
@@ -1595,49 +1633,38 @@ function love.update(dt)
         end
     end
 
-    -- Update drone projectiles (only hit shards, not enemies)
-    for i = #droneProjectiles, 1, -1 do
-        local proj = droneProjectiles[i]
+    -- Update drone projectiles
+    for _, proj in ipairs(droneProjectiles) do
         proj:update(gameDt)
+    end
 
-        -- Track hit shards
-        proj.hitShards = proj.hitShards or {}
-
-        -- Only check collision with collectible shards
-        for _, shard in ipairs(collectibleShards) do
-            if shard.state == "idle" and not shard.dead and not proj.hitShards[shard] then
-                if shard:checkProjectileHit(proj.x, proj.y) then
-                    proj.hitShards[shard] = true
-
-                    -- Shatter the shard
-                    local fragments = shard:shatter(tower.x, tower.y)
-                    for _, frag in ipairs(fragments) do
-                        -- Add light to fragment
-                        frag.lightId = Lighting:addLight({
-                            x = frag.x,
-                            y = frag.y,
-                            radius = POLYGON_LIGHT_RADIUS * 0.5,
-                            intensity = POLYGON_LIGHT_INTENSITY,
-                            color = POLYGON_COLOR,
-                            owner = frag,
-                        })
-                        table.insert(collectibleShards, frag)
-                    end
-
-                    -- Remove original shard's light
-                    if shard.lightId then
-                        Lighting:removeLight(shard.lightId)
-                    end
-                    shard.dead = true
-                    proj.dead = true
-                    break
-                end
-            end
+    -- Process drone projectile vs shard collisions
+    local droneShardResults = CollisionManager:processDroneProjectileVsShards(droneProjectiles, collectibleShards, tower)
+    for _, frag in ipairs(droneShardResults.fragments) do
+        -- Add light to fragment
+        frag.lightId = Lighting:addLight({
+            x = frag.x,
+            y = frag.y,
+            radius = POLYGON_LIGHT_RADIUS * 0.5,
+            intensity = POLYGON_LIGHT_INTENSITY,
+            color = POLYGON_COLOR,
+            owner = frag,
+        })
+        table.insert(collectibleShards, frag)
+    end
+    -- Clean up hit shards (remove lights and mark dead)
+    for _, shard in ipairs(droneShardResults.shardsToRemove) do
+        if shard.lightId then
+            Lighting:removeLight(shard.lightId)
         end
+        shard.dead = true
+    end
 
-        if proj.dead then
-            if proj.lightId then
-                Lighting:removeLight(proj.lightId)
+    -- Clean up dead drone projectiles
+    for i = #droneProjectiles, 1, -1 do
+        if droneProjectiles[i].dead then
+            if droneProjectiles[i].lightId then
+                Lighting:removeLight(droneProjectiles[i].lightId)
             end
             table.remove(droneProjectiles, i)
         end
@@ -1679,45 +1706,20 @@ function love.update(dt)
     end
 
     -- Update missiles
-    for i = #missiles, 1, -1 do
-        local missile = missiles[i]
+    for _, missile in ipairs(missiles) do
         missile:update(gameDt)
+    end
 
-        -- Check collision with enemies
-        for _, enemy in ipairs(enemies) do
-            if missile:checkCollision(enemy) then
-                -- Deal damage
-                local killed, flyingPartsData = enemy:takeDamage(missile.damage, missile.angle)
+    -- Process missile vs enemy collisions
+    local missileResults = CollisionManager:processMissileVsEnemies(missiles, enemies, stats)
+    processCollisionResults(missileResults)
 
-                -- Spawn flying parts
-                for _, partData in ipairs(flyingPartsData) do
-                    table.insert(flyingParts, FlyingPart(partData))
-                end
-
-                -- Spawn explosion
-                DebrisManager:spawnMissileExplosion(missile.x, missile.y, missile.angle)
-
-                -- Spawn damage number
-                spawnDamageNumber(missile.x, missile.y - 10, missile.damage)
-
-                if killed then
-                    totalKills = totalKills + 1
-                    local goldAmount = math.floor(GOLD_PER_KILL * stats.goldMultiplier)
-                    gold = gold + goldAmount
-                    totalGold = totalGold + goldAmount
-                    spawnDamageNumber(enemy.x, enemy.y - 20, goldAmount, "gold")
-                    spawnShardCluster(enemy.x, enemy.y, enemy.shapeName, enemy.maxHp)
-                end
-
-                -- Feedback
-                Feedback:trigger("missile_impact")
-
-                missile.dead = true
-                break
+    -- Clean up dead missiles
+    for i = #missiles, 1, -1 do
+        if missiles[i].dead then
+            if missiles[i].lightId then
+                Lighting:removeLight(missiles[i].lightId)
             end
-        end
-
-        if missile.dead then
             table.remove(missiles, i)
         end
     end
@@ -1727,343 +1729,109 @@ function love.update(dt)
         tower.shield:update(gameDt)
     end
 
-    -- Update damage aura if exists
-    if damageAura then
-        damageAura:update(gameDt)
-
-        -- Apply damage to enemies in range
-        local hits = damageAura:damageEnemiesInRange(enemies)
-        for _, hit in ipairs(hits) do
-            local enemy = hit.enemy
-            local damage = hit.damage
-
-            -- Apply damage
-            local killed, flyingPartsData = enemy:takeDamage(damage, nil)
-
-            -- Spawn flying parts
-            for _, partData in ipairs(flyingPartsData) do
-                table.insert(flyingParts, FlyingPart(partData))
-            end
-
-            -- Show damage number
-            spawnDamageNumber(enemy.x, enemy.y - 10, math.floor(damage))
-
-            if killed then
-                totalKills = totalKills + 1
-                local goldAmount = math.floor(GOLD_PER_KILL * stats.goldMultiplier)
-                gold = gold + goldAmount
-                totalGold = totalGold + goldAmount
-                spawnDamageNumber(enemy.x, enemy.y - 20, goldAmount, "gold")
-                spawnShardCluster(enemy.x, enemy.y, enemy.shapeName, enemy.maxHp)
-            end
-        end
-    end
+    -- Process damage aura
+    local auraResults = AbilityManager:processDamageAura(damageAura, enemies, stats, gameDt)
+    processCollisionResults(auraResults)
 
     -- Update enemies (uses gameDt for gameplay freeze)
-    for i = #enemies, 1, -1 do
-        local enemy = enemies[i]
+    for _, enemy in ipairs(enemies) do
         enemy:update(gameDt)
+    end
 
-        -- Check shield collision first (before tower collision)
-        if tower.shield and tower.shield:checkEnemyCollision(enemy) then
-            -- Shield kills enemy instantly
-            tower.shield:consumeCharge()
+    -- Process shield vs enemy collisions
+    local shieldResults = CollisionManager:processShieldVsEnemies(tower.shield, enemies, tower, stats)
+    processCollisionResults(shieldResults)
 
-            -- Calculate angle from turret to enemy for effects
-            local deathAngle = math.atan2(enemy.y - tower.y, enemy.x - tower.x)
+    -- Process enemy attacks (projectiles, AoE warnings, mini-hex swarms)
+    local attackResults = AbilityManager:processEnemyAttacks(enemies, tower, EnemyProjectile)
+    for _, proj in ipairs(attackResults.projectiles) do
+        table.insert(enemyProjectiles, proj)
+    end
+    for _, warningData in ipairs(attackResults.aoeWarnings) do
+        local warning = AoEWarning(warningData.x, warningData.y, warningData.radius, warningData.duration, warningData.damage)
+        table.insert(aoeWarnings, warning)
+    end
 
-            -- Spawn shield kill burst particles
-            DebrisManager:spawnShieldKillBurst(enemy.x, enemy.y, deathAngle, enemy.color)
+    -- Process enemy vs tower collisions
+    local enemyTowerResults = CollisionManager:processEnemyVsTower(enemies, tower, godMode)
+    checkTowerDestroyed(enemyTowerResults)
 
-            -- Trigger feedback
-            Feedback:trigger("shield_kill")
-
-            -- Kill enemy with enhanced explosion
-            enemy:die(deathAngle, {velocity = PROJECTILE_SPEED * 1.5})
-
-            -- Award gold and shards
-            totalKills = totalKills + 1
-            local goldAmount = math.floor(GOLD_PER_KILL * stats.goldMultiplier)
-            gold = gold + goldAmount
-            totalGold = totalGold + goldAmount
-            spawnDamageNumber(enemy.x, enemy.y - 20, goldAmount, "gold")
-            spawnShardCluster(enemy.x, enemy.y, enemy.shapeName, enemy.maxHp)
-        end
-
-        -- Process enemy attack flags
-        if enemy.shouldFireProjectile then
-            -- Square: Fire projectile at tower
-            local angle = math.atan2(tower.y - enemy.y, tower.x - enemy.x)
-            local proj = EnemyProjectile(enemy.x, enemy.y, angle, SQUARE_PROJECTILE_SPEED, SQUARE_PROJECTILE_DAMAGE, "square_bolt")
-            table.insert(enemyProjectiles, proj)
-            -- Muzzle flash effect
-            DebrisManager:spawnSquareMuzzleFlash(enemy.x, enemy.y, angle)
-        end
-
-        if enemy.shouldCreateTelegraph then
-            -- Pentagon: Create AoE warning at tower position
-            local warning = AoEWarning(tower.x, tower.y, PENTAGON_AOE_RADIUS, PENTAGON_TELEGRAPH_TIME, PENTAGON_AOE_DAMAGE)
-            table.insert(aoeWarnings, warning)
-        end
-
-        if enemy.shouldSpawnMiniHex then
-            -- Hexagon: Spawn mini-hex swarm
-            for j = 1, HEXAGON_MINI_COUNT do
-                local spreadAngle = (j - 1) / HEXAGON_MINI_COUNT * math.pi * 2 + lume.random(-0.3, 0.3)
-                local proj = EnemyProjectile(enemy.x, enemy.y, spreadAngle, HEXAGON_MINI_SPEED, HEXAGON_MINI_DAMAGE, "mini_hex")
-                proj.target = tower  -- Home toward tower
-                table.insert(enemyProjectiles, proj)
-            end
-            -- Spawn burst effect
-            DebrisManager:spawnMiniHexBurst(enemy.x, enemy.y, enemy.color)
-        end
-
-        -- Square collision with tower pad - trigger when touching boundary
-        local padHalfSize = TOWER_PAD_SIZE * BLOB_PIXEL_SIZE * TURRET_SCALE
-        local dx = math.abs(enemy.x - tower.x)
-        local dy = math.abs(enemy.y - tower.y)
-        -- Since enemies are clamped to the boundary, check if they're at/near the edge
-        -- They must be within padHalfSize + small tolerance on both axes
-        if dx <= padHalfSize + 5 and dy <= padHalfSize + 5 then
-            -- Calculate damage (triangle kamikaze deals explosion damage)
-            local contactDamage = ENEMY_CONTACT_DAMAGE
-            if enemy.shapeName == "triangle" and enemy.isCharging then
-                contactDamage = TRIANGLE_EXPLOSION_DAMAGE
-                -- Spawn kamikaze explosion effect
-                DebrisManager:spawnKamikazeExplosion(enemy.x, enemy.y, TRIANGLE_EXPLOSION_RADIUS)
-                Feedback:trigger("kamikaze_explosion")
-            end
-
-            if not godMode then
-                local destroyed = tower:takeDamage(contactDamage)
-                if destroyed then
-                    gameState = "gameover"
-                    initGameOverAnim()
-                    Sounds.stopMusic()
-                end
-            end
-            -- Calculate angle from tower to enemy for death explosion direction
-            local deathAngle = math.atan2(enemy.y - tower.y, enemy.x - tower.x)
-            enemy:die(deathAngle)
-        end
-
-        if enemy.dead then
+    -- Clean up dead enemies
+    for i = #enemies, 1, -1 do
+        if enemies[i].dead then
             table.remove(enemies, i)
         end
     end
 
     -- Update composite enemies
-    for i = #compositeEnemies, 1, -1 do
-        local composite = compositeEnemies[i]
+    for _, composite in ipairs(compositeEnemies) do
         composite:update(gameDt)
+    end
 
-        -- Check tower collision (any node touching tower)
-        if composite:checkTowerCollision() then
-            if not godMode then
-                local destroyed = tower:takeDamage(ENEMY_CONTACT_DAMAGE)
-                if destroyed then
-                    gameState = "gameover"
-                    initGameOverAnim()
-                    Sounds.stopMusic()
-                end
-            end
-            -- Kill the composite and all children
-            local deathAngle = math.atan2(composite.worldY - tower.y, composite.worldX - tower.x)
-            composite:die(deathAngle)
-        end
+    -- Process composite vs tower collisions
+    local compTowerResults = CollisionManager:processCompositeVsTower(compositeEnemies, tower, godMode)
+    checkTowerDestroyed(compTowerResults)
 
-        if composite.dead then
+    -- Clean up dead composites
+    for i = #compositeEnemies, 1, -1 do
+        if compositeEnemies[i].dead then
             table.remove(compositeEnemies, i)
         end
     end
 
-    -- Update projectiles (uses gameDt for gameplay freeze)
-    for i = #projectiles, 1, -1 do
-        local proj = projectiles[i]
+    -- Update projectiles
+    for _, proj in ipairs(projectiles) do
         proj:update(gameDt)
+    end
 
-        -- Track hit enemies to prevent double-hits
-        proj.hitEnemies = proj.hitEnemies or {}
+    -- Process projectile vs enemy collisions
+    local projEnemyResults = CollisionManager:processProjectileVsEnemies(projectiles, enemies, stats)
+    processCollisionResults(projEnemyResults)
 
-        for _, enemy in ipairs(enemies) do
-            if proj:checkCollision(enemy) and not enemy.dead and not proj.hitEnemies[enemy] then
-                -- Mark as hit
-                proj.hitEnemies[enemy] = true
+    -- Process projectile vs composite collisions
+    local projCompResults = CollisionManager:processProjectileVsComposites(projectiles, compositeEnemies, stats)
+    processCollisionResults(projCompResults)
+    -- Add detached children as independent composite enemies
+    for _, child in ipairs(projCompResults.detachedChildren or {}) do
+        table.insert(compositeEnemies, child)
+    end
 
-                -- Calculate actual bullet speed for dynamic effects
-                local bulletSpeed = math.sqrt(proj.vx * proj.vx + proj.vy * proj.vy)
+    -- Process projectile vs shard collisions (shards get caught, not destroyed)
+    CollisionManager:processProjectileVsShards(projectiles, collectibleShards, tower)
 
-                -- Pass position data for ray-based side detection
-                local killed, flyingPartsData, isGapHit = enemy:takeDamage(proj.damage, proj.angle, {
-                    velocity = bulletSpeed,
-                    vx = proj.vx,
-                    vy = proj.vy,
-                    bulletX = proj.x,
-                    bulletY = proj.y,
-                    prevX = proj.prevX,
-                    prevY = proj.prevY,
-                })
-
-                -- Spawn flying parts for all destroyed sides
-                for _, partData in ipairs(flyingPartsData) do
-                    table.insert(flyingParts, FlyingPart(partData))
-                end
-
-                -- Show damage number (bonus damage for gap hits)
-                local displayDamage = math.floor(proj.damage * (isGapHit and GAP_DAMAGE_BONUS or 1))
-                spawnDamageNumber(proj.x, proj.y - 10, displayDamage, isGapHit and "crit" or nil)
-
-                if killed then
-                    totalKills = totalKills + 1
-                    -- Award gold on kill (with multiplier from skill tree)
-                    local goldAmount = math.floor(GOLD_PER_KILL * stats.goldMultiplier)
-                    gold = gold + goldAmount
-                    totalGold = totalGold + goldAmount
-                    spawnDamageNumber(enemy.x, enemy.y - 20, goldAmount, "gold")
-                    -- Spawn shard cluster (one shard per HP)
-                    spawnShardCluster(enemy.x, enemy.y, enemy.shapeName, enemy.maxHp)
-                end
-
-                -- Only destroy projectile if not piercing
-                if not proj.piercing then
-                    proj.dead = true
-                    break
-                end
-            end
-        end
-
-        -- Check collision with composite enemies (hierarchical hit detection)
-        if not proj.dead then
-            proj.hitComposites = proj.hitComposites or {}
-            for _, composite in ipairs(compositeEnemies) do
-                if not composite.dead and not proj.hitComposites[composite] then
-                    -- Find which node gets hit (outermost children first)
-                    local hitNode, _, hitX, hitY, isGapHit = composite:findHitNode(
-                        proj.x, proj.y, proj.prevX, proj.prevY
-                    )
-
-                    if hitNode then
-                        proj.hitComposites[composite] = true
-
-                        -- Calculate bullet speed
-                        local bulletSpeed = math.sqrt(proj.vx * proj.vx + proj.vy * proj.vy)
-
-                        -- Deal damage to the specific node hit
-                        local killed, flyingPartsData, _, detachedChildren = hitNode:takeDamageOnNode(
-                            proj.damage, proj.angle, {
-                                velocity = bulletSpeed,
-                                bulletX = proj.x,
-                                bulletY = proj.y,
-                                prevX = proj.prevX,
-                                prevY = proj.prevY,
-                                isGapHit = isGapHit,
-                            }
-                        )
-
-                        -- Spawn flying parts
-                        for _, partData in ipairs(flyingPartsData) do
-                            table.insert(flyingParts, FlyingPart(partData))
-                        end
-
-                        -- Handle detached children (add them as independent composite enemies)
-                        for _, child in ipairs(detachedChildren) do
-                            table.insert(compositeEnemies, child)
-                        end
-
-                        -- Show damage number
-                        local displayDamage = math.floor(proj.damage * (isGapHit and GAP_DAMAGE_BONUS or 1))
-                        spawnDamageNumber(hitX, hitY - 10, displayDamage, isGapHit and "crit" or nil)
-
-                        if killed then
-                            totalKills = totalKills + 1
-                            local goldAmount = math.floor(GOLD_PER_KILL * stats.goldMultiplier)
-                            gold = gold + goldAmount
-                            totalGold = totalGold + goldAmount
-                            spawnDamageNumber(hitNode.worldX, hitNode.worldY - 20, goldAmount, "gold")
-                            spawnShardCluster(hitNode.worldX, hitNode.worldY, hitNode.shapeName, hitNode.maxHp)
-
-                            -- Trigger feedback
-                            Feedback:trigger("enemy_death")
-                        end
-
-                        -- Destroy projectile if not piercing
-                        if not proj.piercing then
-                            proj.dead = true
-                            break
-                        end
-                    end
-                end
-            end
-        end
-
-        -- Check collision with collectible shards (projectile passes through)
-        proj.hitShards = proj.hitShards or {}
-        for _, shard in ipairs(collectibleShards) do
-            if shard.state == "idle" and not proj.hitShards[shard] and shard:checkProjectileHit(proj.x, proj.y) then
-                proj.hitShards[shard] = true
-                -- Send shard directly to turret
-                shard:catch(tower.x, tower.y)
-            end
-        end
-
-        if proj.dead then
-            -- Remove associated light
-            if proj.lightId then
-                Lighting:removeLight(proj.lightId)
+    -- Clean up dead projectiles
+    for i = #projectiles, 1, -1 do
+        if projectiles[i].dead then
+            if projectiles[i].lightId then
+                Lighting:removeLight(projectiles[i].lightId)
             end
             table.remove(projectiles, i)
         end
     end
 
-    -- Update enemy projectiles (square bolts, mini-hexes)
-    for i = #enemyProjectiles, 1, -1 do
-        local proj = enemyProjectiles[i]
+    -- Update enemy projectiles
+    for _, proj in ipairs(enemyProjectiles) do
         proj:update(gameDt)
+    end
 
-        -- Check collision with tower
-        if proj:checkTowerCollision(tower) then
-            if not godMode then
-                local destroyed = tower:takeDamage(proj.damage)
-                if destroyed then
-                    gameState = "gameover"
-                    initGameOverAnim()
-                    Sounds.stopMusic()
-                end
-            end
-            -- Spawn impact particles
-            DebrisManager:spawnSquareImpact(proj.x, proj.y, proj.angle, proj.projectileType == "mini_hex" and SHAPE_COLORS.hexagon or SHAPE_COLORS.square)
-            Feedback:trigger("enemy_projectile_hit")
-            proj.dead = true
-        end
+    -- Process enemy projectile vs tower collisions
+    local enemyProjResults = CollisionManager:processEnemyProjectileVsTower(enemyProjectiles, tower, godMode)
+    checkTowerDestroyed(enemyProjResults)
 
-        if proj.dead then
+    -- Clean up dead enemy projectiles
+    for i = #enemyProjectiles, 1, -1 do
+        if enemyProjectiles[i].dead then
             table.remove(enemyProjectiles, i)
         end
     end
 
-    -- Update AoE warnings (pentagon telegraphs)
+    -- Process AoE warnings (pentagon telegraphs)
+    local aoeResults = CollisionManager:processAoEWarnings(aoeWarnings, tower, godMode, gameDt)
+    checkTowerDestroyed(aoeResults)
+
+    -- Clean up dead AoE warnings
     for i = #aoeWarnings, 1, -1 do
-        local warning = aoeWarnings[i]
-        local triggeredDamage = warning:update(gameDt)
-
-        if triggeredDamage then
-            -- Check if tower is inside the damage zone
-            if warning:containsPoint(tower.x, tower.y) then
-                if not godMode then
-                    local destroyed = tower:takeDamage(triggeredDamage)
-                    if destroyed then
-                        gameState = "gameover"
-                        initGameOverAnim()
-                        Sounds.stopMusic()
-                    end
-                end
-            end
-            -- Spawn trigger effect
-            DebrisManager:spawnPentagonTrigger(warning.x, warning.y, warning.radius, warning.color)
-            Feedback:trigger("aoe_trigger")
-        end
-
-        if warning.dead then
+        if aoeWarnings[i].dead then
             table.remove(aoeWarnings, i)
         end
     end

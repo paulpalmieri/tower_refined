@@ -255,6 +255,18 @@ function Intro:reset()
     self:start()
 end
 
+-- Start from the "SYSTEM ONLINE" animation (skips text phases)
+-- Used for game restarts
+function Intro:startReboot()
+    phase = PHASE_ALERT
+    timer = 0
+    barrelExtend = 0
+    alertSoundPlayed = false
+    musicFading = false
+    musicFadeTimer = 0
+    -- Don't start intro music for reboots
+end
+
 -- ===================
 -- SOUND PLAYBACK
 -- ===================

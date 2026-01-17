@@ -39,12 +39,28 @@ function Enemy:new(x, y, scale, enemyType)
     -- State
     self.dead = false
     self.flashTimer = 0
+    self.hitFlashTimer = 0  -- Full-body flash on any hit
     self.knockbackX = 0
     self.knockbackY = 0
 
     -- Simple rotation for visual interest
     self.rotation = 0
     self.rotationSpeed = lume.random(-1, 1)
+
+    -- Attack system
+    self.attackTimer = lume.random(0.5, 2.0)  -- Stagger initial attacks
+    self.attackCooldown = 0
+    self.baseSpeed = self.speed  -- Store original speed
+
+    -- Triangle-specific: kamikaze charge
+    self.isCharging = false
+    self.chargeGlow = 0
+
+    -- Attack action flags (processed by main.lua)
+    self.shouldFireProjectile = false
+    self.shouldCreateTelegraph = false
+    self.shouldSpawnMiniHex = false
+    self.shouldExplode = false
 end
 
 function Enemy:update(dt)
@@ -63,6 +79,11 @@ function Enemy:update(dt)
     -- Update core flash timer
     if self.coreFlashTimer > 0 then
         self.coreFlashTimer = self.coreFlashTimer - dt
+    end
+
+    -- Update hit flash timer
+    if self.hitFlashTimer > 0 then
+        self.hitFlashTimer = self.hitFlashTimer - dt
     end
 
     -- Apply knockback (fast decay for punchy feel)
@@ -86,6 +107,58 @@ function Enemy:update(dt)
         self.x = self.x + moveX
         self.y = self.y + moveY
     end
+
+    -- Update attack behavior
+    self:updateAttack(dt, dist)
+end
+
+function Enemy:updateAttack(dt, distToTower)
+    -- Reset action flags
+    self.shouldFireProjectile = false
+    self.shouldCreateTelegraph = false
+    self.shouldSpawnMiniHex = false
+
+    -- Update cooldown
+    if self.attackCooldown > 0 then
+        self.attackCooldown = self.attackCooldown - dt
+    end
+
+    -- Shape-specific attack behavior
+    if self.shapeName == "triangle" then
+        -- Triangle: Kamikaze charge when close
+        if distToTower < TRIANGLE_CHARGE_RANGE and not self.isCharging then
+            self.isCharging = true
+        end
+
+        if self.isCharging then
+            -- Speed up
+            self.speed = self.baseSpeed * TRIANGLE_CHARGE_SPEED_MULT
+            -- Glow intensifies as we get closer
+            self.chargeGlow = math.min(1, self.chargeGlow + dt * 3)
+        end
+
+    elseif self.shapeName == "square" then
+        -- Square: Ranged attack
+        if distToTower < SQUARE_ATTACK_RANGE and self.attackCooldown <= 0 then
+            self.shouldFireProjectile = true
+            self.attackCooldown = SQUARE_ATTACK_COOLDOWN
+        end
+
+    elseif self.shapeName == "pentagon" then
+        -- Pentagon: Telegraphed AoE
+        if distToTower < PENTAGON_ATTACK_RANGE and self.attackCooldown <= 0 then
+            self.shouldCreateTelegraph = true
+            self.attackCooldown = PENTAGON_ATTACK_COOLDOWN
+        end
+
+    elseif self.shapeName == "hexagon" then
+        -- Hexagon: Mini-hex swarm
+        if distToTower < HEXAGON_ATTACK_RANGE and self.attackCooldown <= 0 then
+            self.shouldSpawnMiniHex = true
+            self.attackCooldown = HEXAGON_ATTACK_COOLDOWN
+        end
+    end
+    -- Heptagon: No special attack (contact damage only)
 end
 
 function Enemy:draw()
@@ -94,6 +167,12 @@ function Enemy:draw()
     local shape = ENEMY_SHAPES[self.shapeName]
     local radius = self.size * self.scale
     local coreRadius = radius * 0.92  -- Slightly smaller for core fill
+
+    -- Compute full-body hit flash intensity (0 to 1)
+    local hitFlash = 0
+    if self.hitFlashTimer > 0 then
+        hitFlash = self.hitFlashTimer / HIT_FLASH_DURATION
+    end
 
     -- Build vertices for outline
     local verts = {}
@@ -115,27 +194,63 @@ function Enemy:draw()
 
     local baseColor = self.color
 
+    -- Apply hit flash to base color (lerp toward white)
+    local drawColor = baseColor
+    if hitFlash > 0 then
+        drawColor = {
+            lume.lerp(baseColor[1], 1, hitFlash),
+            lume.lerp(baseColor[2], 1, hitFlash),
+            lume.lerp(baseColor[3], 1, hitFlash),
+        }
+    end
+
+    -- Triangle charging glow effect
+    if self.shapeName == "triangle" and self.chargeGlow > 0 then
+        local pulse = math.sin(love.timer.getTime() * 15) * 0.3 + 0.7
+        local glowIntensity = self.chargeGlow * pulse
+
+        -- Expanded glow vertices
+        local glowRadius = radius * (1.3 + self.chargeGlow * 0.3)
+        local glowVerts = {}
+        for _, v in ipairs(shape) do
+            local rx = v[1] * math.cos(self.rotation) - v[2] * math.sin(self.rotation)
+            local ry = v[1] * math.sin(self.rotation) + v[2] * math.cos(self.rotation)
+            table.insert(glowVerts, self.x + rx * glowRadius)
+            table.insert(glowVerts, self.y + ry * glowRadius)
+        end
+
+        -- Red charging glow
+        love.graphics.setColor(TRIANGLE_GLOW_COLOR[1], TRIANGLE_GLOW_COLOR[2], TRIANGLE_GLOW_COLOR[3], 0.3 * glowIntensity)
+        love.graphics.polygon("fill", glowVerts)
+
+        love.graphics.setColor(TRIANGLE_GLOW_COLOR[1], TRIANGLE_GLOW_COLOR[2], TRIANGLE_GLOW_COLOR[3], 0.5 * glowIntensity)
+        love.graphics.setLineWidth(4)
+        love.graphics.polygon("line", verts)
+    end
+
     -- Outer glow (all sides, creates "skeleton" effect, scaled ~0.67x)
-    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.15)
+    love.graphics.setColor(drawColor[1], drawColor[2], drawColor[3], 0.15 + hitFlash * 0.3)
     love.graphics.setLineWidth(8)
     love.graphics.polygon("line", verts)
 
     -- Mid glow (all sides)
-    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.25)
+    love.graphics.setColor(drawColor[1], drawColor[2], drawColor[3], 0.25 + hitFlash * 0.3)
     love.graphics.setLineWidth(4)
     love.graphics.polygon("line", verts)
 
-    -- Dark fill (core) - flash white when hit through gap
-    local coreColor = baseColor
+    -- Dark fill (core) - flash white when hit through gap OR full-body hit
+    local coreColor = drawColor
     if self.coreFlashTimer > 0 then
         local flashIntensity = self.coreFlashTimer / CORE_FLASH_DURATION
         coreColor = {
-            lume.lerp(baseColor[1], 1, flashIntensity),
-            lume.lerp(baseColor[2], 1, flashIntensity),
-            lume.lerp(baseColor[3], 1, flashIntensity),
+            lume.lerp(drawColor[1], 1, flashIntensity),
+            lume.lerp(drawColor[2], 1, flashIntensity),
+            lume.lerp(drawColor[3], 1, flashIntensity),
         }
     end
-    love.graphics.setColor(coreColor[1] * 0.15, coreColor[2] * 0.15, coreColor[3] * 0.15, 0.9)
+    -- Core fill brightness increases during hit flash
+    local coreBrightness = 0.15 + hitFlash * 0.4
+    love.graphics.setColor(coreColor[1] * coreBrightness, coreColor[2] * coreBrightness, coreColor[3] * coreBrightness, 0.9)
     love.graphics.polygon("fill", coreVerts)
 
     -- Thick border - ONLY ALIVE SIDES with per-side flash (scaled ~0.67x)
@@ -145,9 +260,16 @@ function Enemy:draw()
         if part.alive then
             local x1, y1, x2, y2 = self:getSideVertices(i)
 
-            -- Determine side color (flash red when hit)
+            -- Determine side color (flash red when hit, but override with white during full-body hit flash)
             local sideColor
-            if part.flashTimer > 0 then
+            if hitFlash > 0 then
+                -- Full-body hit flash overrides per-side flash
+                sideColor = {
+                    lume.lerp(drawColor[1] * 0.7, 1, hitFlash),
+                    lume.lerp(drawColor[2] * 0.7, 1, hitFlash),
+                    lume.lerp(drawColor[3] * 0.7, 1, hitFlash),
+                }
+            elseif part.flashTimer > 0 then
                 local flashIntensity = part.flashTimer / PART_FLASH_DURATION
                 sideColor = {
                     lume.lerp(baseColor[1] * 0.7, 1, flashIntensity),
@@ -155,7 +277,7 @@ function Enemy:draw()
                     lume.lerp(baseColor[3] * 0.7, 0.3, flashIntensity),
                 }
             else
-                sideColor = {baseColor[1] * 0.7, baseColor[2] * 0.7, baseColor[3] * 0.7}
+                sideColor = {drawColor[1] * 0.7, drawColor[2] * 0.7, drawColor[3] * 0.7}
             end
 
             love.graphics.setColor(sideColor[1], sideColor[2], sideColor[3], 1)
@@ -482,6 +604,9 @@ function Enemy:takeDamage(amount, angle, impactData)
 
     -- Apply damage to HP
     self.hp = newHp
+
+    -- Trigger full-body hit flash
+    self.hitFlashTimer = HIT_FLASH_DURATION
 
     -- Break the required number of parts, selecting closest to impact point
     local flyingPartsData = {}

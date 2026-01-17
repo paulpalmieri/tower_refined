@@ -27,6 +27,8 @@ Drone = require "src.entities.drone"
 Shield = require "src.entities.shield"
 Silo = require "src.entities.silo"
 Missile = require "src.entities.missile"
+EnemyProjectile = require "src.entities.enemy_projectile"
+AoEWarning = require "src.entities.aoe_warning"
 Sounds = require "src.audio"
 Feedback = require "src.feedback"
 DebrisManager = require "src.debris_manager"
@@ -39,6 +41,10 @@ SettingsMenu = require "src.settings_menu"
 CompositeEnemy = require "src.entities.composite_enemy"
 require "src.composite_templates"
 Camera = require "src.camera"
+Parallax = require "src.parallax"
+Roguelite = require "src.roguelite"
+LevelUpUI = require "src.roguelite.levelup_ui"
+DamageAura = require "src.entities.damage_aura"
 
 -- ===================
 -- GAME STATE
@@ -46,7 +52,7 @@ Camera = require "src.camera"
 local gameState = "playing"    -- "intro", "playing", "gameover", "skilltree", "settings"
 local previousState = nil      -- Track state before settings opened
 gameSpeedIndex = 4             -- Index into GAME_SPEEDS (starts at 1x)
-local debugMode = false        -- Toggle with F3
+local perfOverlay = false      -- Toggle with U (performance overlay)
 local godMode = false          -- Toggle with G (tower invincibility)
 local autoFire = false         -- Toggle with A (auto-fire mode)
 isFullscreen = false           -- Toggle with B (borderless fullscreen) - global for settings menu
@@ -121,6 +127,9 @@ drones = {}               -- Orbiting XP collector drones
 droneProjectiles = {}     -- Drone-fired projectiles (only hit shards)
 silos = {}                -- Missile silos around turret
 missiles = {}             -- Homing missiles in flight
+enemyProjectiles = {}     -- Enemy-fired projectiles (square bolts, mini-hexes)
+aoeWarnings = {}          -- Pentagon telegraphed danger zones
+damageAura = nil          -- Damage aura entity (from roguelite upgrade)
 
 -- Laser beam system
 local laser = {
@@ -137,6 +146,16 @@ local plasma = {
     state = "ready",      -- "ready", "charging", "cooldown"
     timer = 0,            -- Time in current state
     chargeProgress = 0,   -- 0-1, how far charge has progressed (back to front)
+}
+
+-- Game over animation state
+local gameOverAnim = {
+    phase = "none",       -- "none", "fade_in", "title_hold", "reveal", "complete"
+    timer = 0,
+    titleAlpha = 0,
+    titleY = CENTER_Y,
+    statRevealProgress = 0,
+    overlayAlpha = 0,
 }
 
 -- Passive stats (multipliers, modified by skill tree)
@@ -306,8 +325,8 @@ function spawnShardCluster(x, y, shapeName, count)
 end
 
 local function updateCollectibleShards(dt, towerX, towerY)
-    -- Calculate pickup radius based on upgrades
-    local pickupRadius = POLYGON_PICKUP_RADIUS_BASE * stats.pickupRadius
+    -- Calculate pickup radius based on skill tree and roguelite upgrades
+    local pickupRadius = POLYGON_PICKUP_RADIUS_BASE * stats.pickupRadius * Roguelite.runtimeStats.pickupRadiusMult
 
     for i = #collectibleShards, 1, -1 do
         local shard = collectibleShards[i]
@@ -327,10 +346,14 @@ local function updateCollectibleShards(dt, towerX, towerY)
         -- Update shard and check for collection
         local collectedValue = shard:update(dt)
         if collectedValue then
-            -- Add to polygons currency
-            polygons = polygons + collectedValue
-            -- Spawn floating number at turret
-            spawnDamageNumber(towerX, towerY - 30, collectedValue, "polygon")
+            -- Add XP to roguelite system (polygons are now XP during runs)
+            local leveledUp = Roguelite:addXP(collectedValue)
+            if leveledUp then
+                -- Show level-up notification
+                LevelUpUI:show()
+            end
+            -- Spawn floating number at turret (show as XP)
+            spawnDamageNumber(towerX, towerY - 30, collectedValue, "xp")
         end
 
         -- Clean up dead shards (light is auto-removed via owner.dead check)
@@ -409,6 +432,99 @@ local function activateLaser()
     laser.chargeGlow = 0
     laser.damageAccum = 0
     laser.hitEnemies = {}
+end
+
+-- ===================
+-- DASH ABILITY
+-- ===================
+local function tryDash()
+    if not tower then return end
+
+    -- Get WASD direction
+    local dirX, dirY = 0, 0
+    if love.keyboard.isDown("w") or love.keyboard.isDown("up") then
+        dirY = -1
+    end
+    if love.keyboard.isDown("s") or love.keyboard.isDown("down") then
+        dirY = 1
+    end
+    if love.keyboard.isDown("a") or love.keyboard.isDown("left") then
+        dirX = -1
+    end
+    if love.keyboard.isDown("d") or love.keyboard.isDown("right") then
+        dirX = 1
+    end
+
+    -- If no movement keys, dash toward mouse
+    if dirX == 0 and dirY == 0 then
+        local mx, my = getMousePosition()
+        dirX = mx - tower.x
+        dirY = my - tower.y
+    end
+
+    -- Try to dash
+    tower:tryDash(dirX, dirY)
+end
+
+-- Draw dash charge UI (arc segments below turret)
+local function drawDashChargeUI()
+    if not tower then return end
+
+    local info = tower:getDashInfo()
+    local radius = DASH_UI_RADIUS
+    local arcSpan = DASH_UI_ARC_SPAN
+    local gap = DASH_UI_GAP
+
+    -- Arc centered at bottom, segments ordered left to right
+    -- In LOVE2D, angles increase clockwise, so left = smaller angle
+    local centerAngle = math.pi / 2  -- Bottom (pointing down)
+    local totalArcStart = centerAngle - arcSpan / 2  -- Left edge
+    local segmentSpan = (arcSpan - gap * (info.maxCharges - 1)) / info.maxCharges
+
+    for i = 1, info.maxCharges do
+        -- Segments go left to right (i=1 is leftmost)
+        local segStart = totalArcStart + (i - 1) * (segmentSpan + gap)
+        local segEnd = segStart + segmentSpan
+
+        -- Determine fill state
+        local isFull = i <= info.charges
+        local isRecharging = (i == info.charges + 1)
+
+        -- Colors
+        local alpha, r, g, b
+        if isFull then
+            -- Full charge: bright green
+            r, g, b, alpha = 0, 1, 0, 0.8
+        elseif isRecharging then
+            -- Recharging: animated fill
+            r, g, b = 0, 0.6, 0.2
+            alpha = 0.5
+        else
+            -- Empty: dim
+            r, g, b, alpha = 0, 0.3, 0, 0.3
+        end
+
+        -- Draw arc segment background
+        love.graphics.setColor(0, 0.1, 0, 0.4)
+        love.graphics.setLineWidth(4)
+        love.graphics.arc("line", "open", tower.x, tower.y, radius, segStart, segEnd)
+
+        -- Draw filled portion
+        if isFull then
+            -- Full segment
+            love.graphics.setColor(r, g, b, alpha)
+            love.graphics.setLineWidth(3)
+            love.graphics.arc("line", "open", tower.x, tower.y, radius, segStart, segEnd)
+        elseif isRecharging then
+            -- Partial fill from left to right within the segment
+            local fillEnd = segStart + segmentSpan * info.rechargeProgress
+            love.graphics.setColor(r, g, b, alpha)
+            love.graphics.setLineWidth(3)
+            love.graphics.arc("line", "open", tower.x, tower.y, radius, segStart, fillEnd)
+        end
+    end
+
+    love.graphics.setLineWidth(1)
 end
 
 -- Check if a point is inside the laser beam
@@ -905,8 +1021,10 @@ end
 local function fireProjectile()
     local proj = tower:fire()
     if proj then
-        proj.damage = proj.damage * stats.damage
-        -- Projectile glow now handled by bloom + self-draw (no circular light)
+        -- Apply skill tree and roguelite damage multipliers
+        proj.damage = proj.damage * stats.damage * Roguelite.runtimeStats.damageMult
+        -- Add projectile light for grid illumination
+        proj.lightId = Lighting:addProjectileLight(proj)
         table.insert(projectiles, proj)
 
         -- Add muzzle flash at visual barrel tip
@@ -947,39 +1065,13 @@ end
 -- ARENA DRAWING
 -- ===================
 
--- Draw geometric grid floor (infinite scrolling)
+-- Draw geometric grid floor
 local function drawArenaFloor()
-    -- Get camera bounds
-    local left, top, right, bottom = Camera:getBounds()
+    -- Background fill
+    Parallax:drawBackground()
 
-    -- Fill with obsidian background (cover visible area)
-    love.graphics.setColor(NEON_BACKGROUND[1], NEON_BACKGROUND[2], NEON_BACKGROUND[3])
-    love.graphics.rectangle("fill", left - GRID_SIZE, top - GRID_SIZE, WINDOW_WIDTH + GRID_SIZE * 2, WINDOW_HEIGHT + GRID_SIZE * 2)
-
-    -- Draw grid lines with distance-based fade from camera center
-    love.graphics.setLineWidth(GRID_LINE_WIDTH)
-
-    -- Calculate grid offset (snap to grid)
-    local gridStartX = math.floor(left / GRID_SIZE) * GRID_SIZE
-    local gridStartY = math.floor(top / GRID_SIZE) * GRID_SIZE
-
-    -- Vertical lines
-    for x = gridStartX, right + GRID_SIZE, GRID_SIZE do
-        local distFromCenter = math.abs(x - Camera.x)
-        local alpha = 0.4 * (1 - math.min(1, distFromCenter / (WINDOW_WIDTH / 2)) * 0.7)
-        love.graphics.setColor(NEON_GRID[1], NEON_GRID[2], NEON_GRID[3], alpha)
-        love.graphics.line(x, top - GRID_SIZE, x, bottom + GRID_SIZE)
-    end
-
-    -- Horizontal lines
-    for y = gridStartY, bottom + GRID_SIZE, GRID_SIZE do
-        local distFromCenter = math.abs(y - Camera.y)
-        local alpha = 0.4 * (1 - math.min(1, distFromCenter / (WINDOW_HEIGHT / 2)) * 0.7)
-        love.graphics.setColor(NEON_GRID[1], NEON_GRID[2], NEON_GRID[3], alpha)
-        love.graphics.line(left - GRID_SIZE, y, right + GRID_SIZE, y)
-    end
-
-    love.graphics.setLineWidth(1)
+    -- Main grid (with gravity well effect)
+    Parallax:drawGrid()
 end
 
 -- ===================
@@ -1115,6 +1207,40 @@ local function drawUI()
     -- Gold (current run) - yellow neon
     love.graphics.setColor(NEON_YELLOW[1], NEON_YELLOW[2], NEON_YELLOW[3], 0.9)
     love.graphics.print("Gold: " .. totalGold, WINDOW_WIDTH - 110, 50)
+
+    -- XP Bar and Level - purple neon
+    local xpBarX = WINDOW_WIDTH - 160
+    local xpBarY = 70
+    local xpBarWidth = 150
+    local xpBarHeight = 14
+
+    -- Level text
+    love.graphics.setColor(POLYGON_COLOR[1], POLYGON_COLOR[2], POLYGON_COLOR[3], 0.9)
+    love.graphics.print("LVL " .. Roguelite.level, xpBarX, xpBarY - 16)
+
+    -- XP bar background
+    love.graphics.setColor(0.02, 0.02, 0.05, 0.9)
+    love.graphics.rectangle("fill", xpBarX, xpBarY, xpBarWidth, xpBarHeight)
+
+    -- XP bar fill
+    local xpProgress = Roguelite:getXPProgress()
+    love.graphics.setColor(POLYGON_COLOR[1], POLYGON_COLOR[2], POLYGON_COLOR[3], 0.4)
+    love.graphics.rectangle("fill", xpBarX, xpBarY, xpBarWidth * xpProgress, xpBarHeight)
+    love.graphics.setColor(POLYGON_COLOR[1], POLYGON_COLOR[2], POLYGON_COLOR[3], 0.8)
+    love.graphics.rectangle("fill", xpBarX, xpBarY + 2, xpBarWidth * xpProgress, xpBarHeight - 4)
+
+    -- XP bar border
+    love.graphics.setColor(POLYGON_COLOR[1], POLYGON_COLOR[2], POLYGON_COLOR[3], 0.5)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", xpBarX, xpBarY, xpBarWidth, xpBarHeight)
+    love.graphics.setLineWidth(1)
+
+    -- XP text inside bar
+    local xpText = math.floor(Roguelite.currentXP) .. "/" .. math.floor(Roguelite.xpToNextLevel)
+    local xpTextW = font:getWidth(xpText)
+    local xpTextH = font:getHeight()
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.print(xpText, xpBarX + (xpBarWidth - xpTextW) / 2, xpBarY + (xpBarHeight - xpTextH) / 2)
 
     -- Laser button with neon styling
     local laserY = WINDOW_HEIGHT - 60
@@ -1294,45 +1420,153 @@ local function drawUI()
     end
 end
 
+-- Ease-out cubic function for smooth deceleration
+local function easeOutCubic(t)
+    return 1 - math.pow(1 - t, 3)
+end
+
+-- Initialize game over animation
+local function initGameOverAnim()
+    gameOverAnim.phase = "fade_in"
+    gameOverAnim.timer = 0
+    gameOverAnim.titleAlpha = 0
+    gameOverAnim.titleY = CENTER_Y * 0.3  -- 30% from top
+    gameOverAnim.statRevealProgress = 0
+    gameOverAnim.overlayAlpha = 0
+end
+
+-- Update game over animation state machine
+local function updateGameOverAnim(dt)
+    if gameOverAnim.phase == "none" then return end
+
+    gameOverAnim.timer = gameOverAnim.timer + dt
+
+    if gameOverAnim.phase == "fade_in" then
+        local t = math.min(gameOverAnim.timer / GAMEOVER_FADE_DURATION, 1)
+        gameOverAnim.overlayAlpha = easeOutCubic(t) * 0.85
+        if t >= 1 then
+            gameOverAnim.phase = "title_hold"
+            gameOverAnim.timer = 0
+        end
+
+    elseif gameOverAnim.phase == "title_hold" then
+        -- Fade in title
+        local fadeT = math.min(gameOverAnim.timer / GAMEOVER_TITLE_FADE_DURATION, 1)
+        gameOverAnim.titleAlpha = easeOutCubic(fadeT)
+
+        -- Auto-advance to reveal after timeout
+        if gameOverAnim.timer >= GAMEOVER_TITLE_HOLD_TIMEOUT then
+            gameOverAnim.phase = "reveal"
+            gameOverAnim.timer = 0
+        end
+
+    elseif gameOverAnim.phase == "reveal" then
+        local t = math.min(gameOverAnim.timer / GAMEOVER_REVEAL_DURATION, 1)
+        gameOverAnim.statRevealProgress = easeOutCubic(t)
+
+        if t >= 1 then
+            gameOverAnim.phase = "complete"
+            gameOverAnim.timer = 0
+        end
+
+    -- "complete" phase: nothing to update, just wait for input
+    end
+end
+
+-- Trigger reveal phase (called on keypress during title_hold)
+local function triggerGameOverReveal()
+    if gameOverAnim.phase == "title_hold" then
+        gameOverAnim.phase = "reveal"
+        gameOverAnim.timer = 0
+    end
+end
+
 local function drawGameOver()
-    -- Dark overlay with slight green tint
-    love.graphics.setColor(0.01, 0.03, 0.01, 0.85)
+    -- Don't draw if animation hasn't started
+    if gameOverAnim.phase == "none" then return end
+
+    local font = love.graphics.getFont()
+    local title = "SYSTEM FAILURE"
+    local titleWidth = font:getWidth(title)
+
+    -- Layout constants
+    local titleYBase = CENTER_Y * 0.3      -- ~30% from top when revealed
+    local titleYStart = CENTER_Y - 80      -- Initial centered position
+    local statsStartY = CENTER_Y * 0.45    -- Stats start at ~45% from top
+    local statLineHeight = 20
+    local buttonsY = CENTER_Y * 0.7        -- Buttons at ~70% from top
+
+    -- Dark overlay
+    love.graphics.setColor(0.01, 0.03, 0.01, gameOverAnim.overlayAlpha)
     love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
 
-    -- Title with red neon glow
-    local title = "SYSTEM FAILURE"
-    local font = love.graphics.getFont()
-    local titleX = CENTER_X - font:getWidth(title) / 2
-    local titleY = CENTER_Y - 80
+    -- During fade_in, just draw overlay
+    if gameOverAnim.phase == "fade_in" then return end
 
-    -- Glow effect
-    love.graphics.setColor(NEON_RED[1], NEON_RED[2], NEON_RED[3], 0.3)
+    -- Calculate title position (slides up during reveal)
+    local titleY
+    if gameOverAnim.phase == "title_hold" then
+        titleY = titleYStart
+    else
+        -- Interpolate from center to top position during reveal
+        titleY = lume.lerp(titleYStart, titleYBase, gameOverAnim.statRevealProgress)
+    end
+    local titleX = CENTER_X - titleWidth / 2
+
+    -- Title with red neon glow
+    local titleAlpha = gameOverAnim.titleAlpha
+    love.graphics.setColor(NEON_RED[1], NEON_RED[2], NEON_RED[3], 0.3 * titleAlpha)
     love.graphics.print(title, titleX - 1, titleY - 1)
     love.graphics.print(title, titleX + 1, titleY + 1)
-    love.graphics.setColor(NEON_RED[1], NEON_RED[2], NEON_RED[3], 1)
+    love.graphics.setColor(NEON_RED[1], NEON_RED[2], NEON_RED[3], titleAlpha)
     love.graphics.print(title, titleX, titleY)
 
-    -- Stats in neon green
-    love.graphics.setColor(NEON_PRIMARY[1], NEON_PRIMARY[2], NEON_PRIMARY[3], 0.9)
+    -- Don't draw stats during title_hold phase
+    if gameOverAnim.phase == "title_hold" then return end
+
+    -- Stats with staggered reveal
+    local statsX = CENTER_X - 70
+    local revealProgress = gameOverAnim.statRevealProgress
+
+    -- Helper to get alpha for a specific stat index (0-based)
+    local function getStatAlpha(index)
+        local statStart = index * GAMEOVER_STAT_STAGGER
+        local statProgress = (revealProgress - statStart) / (1 - statStart)
+        return math.max(0, math.min(1, statProgress)) * 0.9
+    end
+
+    -- Time Survived (green)
     local minutes = math.floor(gameTime / 60)
     local seconds = math.floor(gameTime % 60)
-    love.graphics.print(string.format("Time Survived: %d:%02d", minutes, seconds), CENTER_X - 70, CENTER_Y - 40)
-    love.graphics.print("Enemies Destroyed: " .. totalKills, CENTER_X - 70, CENTER_Y - 20)
+    love.graphics.setColor(NEON_PRIMARY[1], NEON_PRIMARY[2], NEON_PRIMARY[3], getStatAlpha(0))
+    love.graphics.print(string.format("Time Survived: %d:%02d", minutes, seconds), statsX, statsStartY)
 
-    -- Gold in yellow neon
-    love.graphics.setColor(NEON_YELLOW[1], NEON_YELLOW[2], NEON_YELLOW[3], 0.9)
-    love.graphics.print("Credits Earned: +" .. gold, CENTER_X - 70, CENTER_Y)
-    love.graphics.print("Total Credits: " .. totalGold, CENTER_X - 70, CENTER_Y + 20)
+    -- Enemies Destroyed (green)
+    love.graphics.setColor(NEON_PRIMARY[1], NEON_PRIMARY[2], NEON_PRIMARY[3], getStatAlpha(1))
+    love.graphics.print("Enemies Destroyed: " .. totalKills, statsX, statsStartY + statLineHeight)
 
-    -- Polygons in purple
-    love.graphics.setColor(POLYGON_COLOR[1], POLYGON_COLOR[2], POLYGON_COLOR[3], 0.9)
-    love.graphics.print("Polygons: P" .. polygons, CENTER_X - 70, CENTER_Y + 40)
+    -- Credits Earned (yellow)
+    love.graphics.setColor(NEON_YELLOW[1], NEON_YELLOW[2], NEON_YELLOW[3], getStatAlpha(2))
+    love.graphics.print("Credits Earned: +" .. gold, statsX, statsStartY + statLineHeight * 2)
 
-    -- Instructions
-    love.graphics.setColor(NEON_CYAN[1], NEON_CYAN[2], NEON_CYAN[3], 0.8)
-    love.graphics.print("[S] SKILL TREE", CENTER_X - 45, CENTER_Y + 70)
-    love.graphics.setColor(NEON_PRIMARY_DIM[1], NEON_PRIMARY_DIM[2], NEON_PRIMARY_DIM[3], 0.7)
-    love.graphics.print("[R] REBOOT SYSTEM", CENTER_X - 55, CENTER_Y + 90)
+    -- Total Credits (yellow)
+    love.graphics.setColor(NEON_YELLOW[1], NEON_YELLOW[2], NEON_YELLOW[3], getStatAlpha(3))
+    love.graphics.print("Total Credits: " .. totalGold, statsX, statsStartY + statLineHeight * 3)
+
+    -- Polygons (purple)
+    love.graphics.setColor(POLYGON_COLOR[1], POLYGON_COLOR[2], POLYGON_COLOR[3], getStatAlpha(4))
+    love.graphics.print("Polygons: P" .. polygons, statsX, statsStartY + statLineHeight * 4)
+
+    -- Only show buttons when animation is complete
+    if gameOverAnim.phase == "complete" then
+        -- [R] REBOOT
+        love.graphics.setColor(NEON_PRIMARY_DIM[1], NEON_PRIMARY_DIM[2], NEON_PRIMARY_DIM[3], 0.7)
+        love.graphics.print("[R] REBOOT", CENTER_X - 100, buttonsY)
+
+        -- [S] SKILL TREE
+        love.graphics.setColor(NEON_CYAN[1], NEON_CYAN[2], NEON_CYAN[3], 0.8)
+        love.graphics.print("[S] SKILL TREE", CENTER_X + 20, buttonsY)
+    end
 end
 
 -- ===================
@@ -1341,11 +1575,16 @@ end
 function startNewRun()
     gameState = "playing"
 
+    -- Reset roguelite progression for new run
+    Roguelite:reset()
+    LevelUpUI:init()
+
     -- Apply skill tree upgrades
     SkillTree:applyUpgrades(stats)
 
     -- Create tower with upgraded HP
     tower = Turret(CENTER_X, CENTER_Y)
+    tower.lightId = Lighting:addTowerGlow(tower)
 
     -- Initialize camera to follow tower
     Camera:init(tower.x, tower.y)
@@ -1366,8 +1605,14 @@ function startNewRun()
     clearCollectibleShards()
     drones = {}
     droneProjectiles = {}
+    enemyProjectiles = {}
+    aoeWarnings = {}
+    damageAura = nil
     gold = 0
     totalKills = 0
+
+    -- Reset game over animation
+    gameOverAnim.phase = "none"
 
     -- Reset laser state
     laser.state = "ready"
@@ -1407,6 +1652,7 @@ function startNewRun()
     Feedback:reset()
     DebrisManager:reset()
     Lighting:reset()
+    Parallax:reset()
 
     -- Create drones based on skill tree
     for i = 1, stats.droneCount do
@@ -1453,6 +1699,127 @@ function startNewRun()
     Sounds.playMusic()
 end
 
+-- Trigger reboot animation before starting a new run
+-- This plays the "SYSTEM ONLINE" + turret animation without the text phases
+function triggerRebootAnimation()
+    -- Stop any playing music
+    Sounds.stopMusic()
+    Sounds.stopLaser()
+
+    -- Clear all game entities for a clean arena during animation
+    enemies = {}
+    compositeEnemies = {}
+    projectiles = {}
+    particles = {}
+    damageNumbers = {}
+    chunks = {}
+    flyingParts = {}
+    dustParticles = {}
+    clearCollectibleShards()
+    drones = {}
+    droneProjectiles = {}
+    enemyProjectiles = {}
+    aoeWarnings = {}
+    damageAura = nil
+    silos = {}
+    missiles = {}
+
+    -- Reset lighting
+    Lighting:reset()
+
+    -- Keep or create tower for the animation
+    if not tower then
+        tower = Turret(CENTER_X, CENTER_Y)
+    else
+        -- Reset tower position for animation
+        tower.x = CENTER_X
+        tower.y = CENTER_Y
+    end
+    tower.lightId = Lighting:addTowerGlow(tower)
+
+    -- Start the reboot animation
+    gameState = "intro"
+    Intro:startReboot()
+end
+
+-- Sync roguelite abilities mid-run (called when upgrades are selected)
+local function syncRogueliteAbilities()
+    local rs = Roguelite.runtimeStats
+
+    -- Update tower fire rate with roguelite multiplier
+    tower.fireRate = TOWER_FIRE_RATE / (stats.fireRate * rs.fireRateMult)
+    tower.projectileSpeed = PROJECTILE_SPEED * stats.projectileSpeed * rs.projectileSpeedMult
+
+    -- Sync shield
+    if rs.shieldCharges > 0 then
+        if not tower.shield then
+            tower.shield = Shield(tower)
+        end
+        tower.shield:setCharges(rs.shieldCharges, rs.shieldCharges)
+        tower.shield:setRadius(stats.shieldRadius)
+    end
+
+    -- Sync drones
+    local currentDroneCount = #drones
+    local targetDroneCount = stats.droneCount + rs.droneCount
+    if targetDroneCount > currentDroneCount then
+        -- Add new drones
+        for i = currentDroneCount + 1, targetDroneCount do
+            local drone = Drone(tower, i - 1, targetDroneCount)
+            drone.fireRate = DRONE_BASE_FIRE_RATE / stats.droneFireRate
+
+            -- Add drone glow light
+            drone.lightId = Lighting:addLight({
+                x = drone.x,
+                y = drone.y,
+                radius = DRONE_LIGHT_RADIUS,
+                intensity = DRONE_LIGHT_INTENSITY,
+                color = DRONE_COLOR,
+                owner = drone,
+                pulse = 2,
+                pulseAmount = 0.15,
+            })
+
+            table.insert(drones, drone)
+        end
+        -- Reposition existing drones for even spacing
+        for i, drone in ipairs(drones) do
+            drone.orbitIndex = i - 1
+            local spacing = (2 * math.pi) / targetDroneCount
+            drone.orbitAngle = (i - 1) * spacing
+            drone:updateOrbitPosition()
+        end
+    end
+
+    -- Sync silos
+    local currentSiloCount = #silos
+    local targetSiloCount = stats.siloCount + rs.siloCount
+    if targetSiloCount > currentSiloCount then
+        -- Add new silos
+        for i = currentSiloCount + 1, targetSiloCount do
+            local silo = Silo(tower, i - 1, targetSiloCount)
+            silo.fireRate = SILO_BASE_FIRE_RATE / stats.siloFireRate
+            silo.doubleShot = stats.siloDoubleShot
+            table.insert(silos, silo)
+        end
+        -- Reposition existing silos for even spacing
+        for i, silo in ipairs(silos) do
+            silo.orbitIndex = i - 1
+            local spacing = (2 * math.pi) / targetSiloCount
+            silo.orbitAngle = (i - 1) * spacing
+            silo:updateOrbitPosition()
+        end
+    end
+
+    -- Sync damage aura
+    if rs.auraEnabled and not damageAura then
+        damageAura = DamageAura(tower)
+    end
+    if damageAura then
+        damageAura:setStats(rs.auraDamageMult, rs.auraRadiusMult)
+    end
+end
+
 -- ===================
 -- LOVE CALLBACKS
 -- ===================
@@ -1483,6 +1850,7 @@ function love.load()
     PostFX:init()
     Intro:init()
     initGround()
+    Parallax:init()
 
     -- Start in intro state if enabled, otherwise go straight to playing
     if INTRO_ENABLED then
@@ -1490,6 +1858,7 @@ function love.load()
         Intro:start()
         -- Create tower for intro animation (but don't start full run yet)
         tower = Turret(CENTER_X, CENTER_Y)
+        tower.lightId = Lighting:addTowerGlow(tower)
     else
         startNewRun()
     end
@@ -1520,6 +1889,14 @@ function love.update(dt)
     -- Update skill tree if active
     if gameState == "skilltree" then
         SkillTree:update(dt)
+
+        -- Update play transition if active
+        if SkillTree:isPlayTransitionActive() then
+            if SkillTree:updatePlayTransition(dt) then
+                -- Transition complete, play reboot animation then start
+                triggerRebootAnimation()
+            end
+        end
         return
     end
 
@@ -1530,8 +1907,18 @@ function love.update(dt)
     end
 
     if gameState == "gameover" then
+        updateGameOverAnim(dt)
         return
     end
+
+    -- Level-up selection pauses gameplay
+    if Roguelite.levelUpPending then
+        LevelUpUI:update(dt, Roguelite)
+        return
+    end
+
+    -- Sync abilities after level-up completed (check if abilities need updating)
+    syncRogueliteAbilities()
 
     -- Apply game speed
     dt = dt * GAME_SPEEDS[gameSpeedIndex]
@@ -1589,7 +1976,10 @@ function love.update(dt)
     end
 
     -- Update camera to follow tower
-    Camera:update(tower.x, tower.y)
+    Camera:update(tower.x, tower.y, gameDt)
+
+    -- Update parallax dust particles
+    Parallax:update(gameDt)
 
     -- Update drones
     for _, drone in ipairs(drones) do
@@ -1684,6 +2074,14 @@ function love.update(dt)
             -- Spawn missile(s)
             for _ = 1, fireData.count do
                 local missile = Missile(fireData.x, fireData.y)
+                missile.lightId = Lighting:addLight({
+                    x = missile.x,
+                    y = missile.y,
+                    radius = MISSILE_LIGHT_RADIUS,
+                    intensity = MISSILE_LIGHT_INTENSITY,
+                    color = MISSILE_COLOR,
+                    owner = missile,
+                })
 
                 -- Find random target from alive enemies
                 local validEnemies = {}
@@ -1753,6 +2151,38 @@ function love.update(dt)
         tower.shield:update(gameDt)
     end
 
+    -- Update damage aura if exists
+    if damageAura then
+        damageAura:update(gameDt)
+
+        -- Apply damage to enemies in range
+        local hits = damageAura:damageEnemiesInRange(enemies)
+        for _, hit in ipairs(hits) do
+            local enemy = hit.enemy
+            local damage = hit.damage
+
+            -- Apply damage
+            local killed, flyingPartsData = enemy:takeDamage(damage, nil)
+
+            -- Spawn flying parts
+            for _, partData in ipairs(flyingPartsData) do
+                table.insert(flyingParts, FlyingPart(partData))
+            end
+
+            -- Show damage number
+            spawnDamageNumber(enemy.x, enemy.y - 10, math.floor(damage))
+
+            if killed then
+                totalKills = totalKills + 1
+                local goldAmount = math.floor(GOLD_PER_KILL * stats.goldMultiplier)
+                gold = gold + goldAmount
+                totalGold = totalGold + goldAmount
+                spawnDamageNumber(enemy.x, enemy.y - 20, goldAmount, "gold")
+                spawnShardCluster(enemy.x, enemy.y, enemy.shapeName, enemy.maxHp)
+            end
+        end
+    end
+
     -- Update enemies (uses gameDt for gameplay freeze)
     for i = #enemies, 1, -1 do
         local enemy = enemies[i]
@@ -1784,6 +2214,34 @@ function love.update(dt)
             spawnShardCluster(enemy.x, enemy.y, enemy.shapeName, enemy.maxHp)
         end
 
+        -- Process enemy attack flags
+        if enemy.shouldFireProjectile then
+            -- Square: Fire projectile at tower
+            local angle = math.atan2(tower.y - enemy.y, tower.x - enemy.x)
+            local proj = EnemyProjectile(enemy.x, enemy.y, angle, SQUARE_PROJECTILE_SPEED, SQUARE_PROJECTILE_DAMAGE, "square_bolt")
+            table.insert(enemyProjectiles, proj)
+            -- Muzzle flash effect
+            DebrisManager:spawnSquareMuzzleFlash(enemy.x, enemy.y, angle)
+        end
+
+        if enemy.shouldCreateTelegraph then
+            -- Pentagon: Create AoE warning at tower position
+            local warning = AoEWarning(tower.x, tower.y, PENTAGON_AOE_RADIUS, PENTAGON_TELEGRAPH_TIME, PENTAGON_AOE_DAMAGE)
+            table.insert(aoeWarnings, warning)
+        end
+
+        if enemy.shouldSpawnMiniHex then
+            -- Hexagon: Spawn mini-hex swarm
+            for j = 1, HEXAGON_MINI_COUNT do
+                local spreadAngle = (j - 1) / HEXAGON_MINI_COUNT * math.pi * 2 + lume.random(-0.3, 0.3)
+                local proj = EnemyProjectile(enemy.x, enemy.y, spreadAngle, HEXAGON_MINI_SPEED, HEXAGON_MINI_DAMAGE, "mini_hex")
+                proj.target = tower  -- Home toward tower
+                table.insert(enemyProjectiles, proj)
+            end
+            -- Spawn burst effect
+            DebrisManager:spawnMiniHexBurst(enemy.x, enemy.y, enemy.color)
+        end
+
         -- Square collision with tower pad - trigger when touching boundary
         local padHalfSize = TOWER_PAD_SIZE * BLOB_PIXEL_SIZE * TURRET_SCALE
         local dx = math.abs(enemy.x - tower.x)
@@ -1791,10 +2249,20 @@ function love.update(dt)
         -- Since enemies are clamped to the boundary, check if they're at/near the edge
         -- They must be within padHalfSize + small tolerance on both axes
         if dx <= padHalfSize + 5 and dy <= padHalfSize + 5 then
+            -- Calculate damage (triangle kamikaze deals explosion damage)
+            local contactDamage = ENEMY_CONTACT_DAMAGE
+            if enemy.shapeName == "triangle" and enemy.isCharging then
+                contactDamage = TRIANGLE_EXPLOSION_DAMAGE
+                -- Spawn kamikaze explosion effect
+                DebrisManager:spawnKamikazeExplosion(enemy.x, enemy.y, TRIANGLE_EXPLOSION_RADIUS)
+                Feedback:trigger("kamikaze_explosion")
+            end
+
             if not godMode then
-                local destroyed = tower:takeDamage(ENEMY_CONTACT_DAMAGE)
+                local destroyed = tower:takeDamage(contactDamage)
                 if destroyed then
                     gameState = "gameover"
+                    initGameOverAnim()
                     Sounds.stopMusic()
                 end
             end
@@ -1819,6 +2287,7 @@ function love.update(dt)
                 local destroyed = tower:takeDamage(ENEMY_CONTACT_DAMAGE)
                 if destroyed then
                     gameState = "gameover"
+                    initGameOverAnim()
                     Sounds.stopMusic()
                 end
             end
@@ -1970,6 +2439,59 @@ function love.update(dt)
         end
     end
 
+    -- Update enemy projectiles (square bolts, mini-hexes)
+    for i = #enemyProjectiles, 1, -1 do
+        local proj = enemyProjectiles[i]
+        proj:update(gameDt)
+
+        -- Check collision with tower
+        if proj:checkTowerCollision(tower) then
+            if not godMode then
+                local destroyed = tower:takeDamage(proj.damage)
+                if destroyed then
+                    gameState = "gameover"
+                    initGameOverAnim()
+                    Sounds.stopMusic()
+                end
+            end
+            -- Spawn impact particles
+            DebrisManager:spawnSquareImpact(proj.x, proj.y, proj.angle, proj.projectileType == "mini_hex" and SHAPE_COLORS.hexagon or SHAPE_COLORS.square)
+            Feedback:trigger("enemy_projectile_hit")
+            proj.dead = true
+        end
+
+        if proj.dead then
+            table.remove(enemyProjectiles, i)
+        end
+    end
+
+    -- Update AoE warnings (pentagon telegraphs)
+    for i = #aoeWarnings, 1, -1 do
+        local warning = aoeWarnings[i]
+        local triggeredDamage = warning:update(gameDt)
+
+        if triggeredDamage then
+            -- Check if tower is inside the damage zone
+            if warning:containsPoint(tower.x, tower.y) then
+                if not godMode then
+                    local destroyed = tower:takeDamage(triggeredDamage)
+                    if destroyed then
+                        gameState = "gameover"
+                        initGameOverAnim()
+                        Sounds.stopMusic()
+                    end
+                end
+            end
+            -- Spawn trigger effect
+            DebrisManager:spawnPentagonTrigger(warning.x, warning.y, warning.radius, warning.color)
+            Feedback:trigger("aoe_trigger")
+        end
+
+        if warning.dead then
+            table.remove(aoeWarnings, i)
+        end
+    end
+
     -- Visual effects use raw dt (keep animating during hit-stop)
     updateParticles(dt)
     updateDamageNumbers(dt)
@@ -2022,6 +2544,7 @@ function love.draw()
     -- Skill tree: CRT only (no game effects)
     if gameState == "skilltree" then
         SkillTree:draw()
+        SkillTree:drawPlayTransitionOverlay()
         drawScopeCursor()
         DebugConsole:draw()
         love.graphics.pop()
@@ -2062,6 +2585,11 @@ function love.draw()
     -- 2.5 Collectible shards (above chunks, below enemies)
     drawCollectibleShards()
 
+    -- 2.6 AoE warnings (below enemies so they can see them)
+    for _, warning in ipairs(aoeWarnings) do
+        warning:draw()
+    end
+
     -- 3. Dust particles (footsteps)
     drawDustParticles()
 
@@ -2075,12 +2603,24 @@ function love.draw()
         composite:draw()
     end
 
-    -- 5. Tower
+    -- 5. Tower (with dash effects)
+    -- Draw dash afterimages first (behind turret)
+    tower:drawAfterimages()
+
+    -- Draw turret
     tower:draw()
+
+    -- Draw dash charge UI (arc segments below turret)
+    drawDashChargeUI()
 
     -- 5.25 Shield
     if tower.shield then
         tower.shield:draw()
+    end
+
+    -- 5.3 Damage Aura
+    if damageAura then
+        damageAura:draw()
     end
 
     -- 5.5 Drones
@@ -2106,6 +2646,11 @@ function love.draw()
     -- 6.6 Missiles
     for _, missile in ipairs(missiles) do
         missile:draw()
+    end
+
+    -- 6.7 Enemy projectiles
+    for _, proj in ipairs(enemyProjectiles) do
+        proj:draw()
     end
 
     -- 7. Lighting (additive glow)
@@ -2149,17 +2694,49 @@ function love.draw()
     -- UI elements
     drawUI()
 
+    -- Level-up UI overlay
+    if Roguelite.levelUpPending then
+        LevelUpUI:draw(Roguelite)
+    end
+
     if gameState == "gameover" then
         drawGameOver()
     end
 
-    -- Debug overlay (toggle with F3)
-    if debugMode then
-        love.graphics.setColor(1, 1, 1, 0.9)
-        love.graphics.print("Chunks: " .. #chunks, 10, 90)
-        love.graphics.print("Particles: " .. #particles, 10, 105)
-        love.graphics.print("Lights: " .. Lighting:getLightCount(), 10, 120)
-        love.graphics.print("Scale: " .. string.format("%.2f", SCALE), 10, 135)
+    -- Performance overlay (toggle with R)
+    if perfOverlay then
+        local fps = love.timer.getFPS()
+        local memKB = collectgarbage("count")
+        local y = 10
+        local lineHeight = 14
+
+        love.graphics.setColor(0, 0, 0, 0.7)
+        love.graphics.rectangle("fill", 5, 5, 160, 180)
+
+        love.graphics.setColor(0, 1, 0, 0.9)
+        love.graphics.print(string.format("FPS: %d", fps), 10, y)
+        y = y + lineHeight
+        love.graphics.print(string.format("Memory: %.1f MB", memKB / 1024), 10, y)
+        y = y + lineHeight + 5
+
+        love.graphics.setColor(1, 1, 1, 0.8)
+        love.graphics.print("--- Entities ---", 10, y)
+        y = y + lineHeight
+        love.graphics.print(string.format("Enemies: %d", #enemies), 10, y)
+        y = y + lineHeight
+        love.graphics.print(string.format("Composites: %d", #compositeEnemies), 10, y)
+        y = y + lineHeight
+        love.graphics.print(string.format("Projectiles: %d", #projectiles), 10, y)
+        y = y + lineHeight
+        love.graphics.print(string.format("Particles: %d", #particles), 10, y)
+        y = y + lineHeight
+        love.graphics.print(string.format("Chunks: %d", #chunks), 10, y)
+        y = y + lineHeight
+        love.graphics.print(string.format("Shards: %d", #collectibleShards), 10, y)
+        y = y + lineHeight
+        love.graphics.print(string.format("Lights: %d", Lighting:getLightCount()), 10, y)
+        y = y + lineHeight
+        love.graphics.print(string.format("Speed: %.1fx", GAME_SPEEDS[gameSpeedIndex]), 10, y)
     end
 
     -- Debug console
@@ -2197,9 +2774,9 @@ function love.keypressed(key)
         return -- Consume all keys when console visible
     end
 
-    -- Debug mode toggle (F3)
-    if key == "f3" then
-        debugMode = not debugMode
+    -- Performance overlay toggle (U)
+    if key == "u" then
+        perfOverlay = not perfOverlay
         return
     end
 
@@ -2242,7 +2819,7 @@ function love.keypressed(key)
         else
             local action = SkillTree:keypressed(key)
             if action == "play" then
-                startNewRun()
+                SkillTree:startPlayTransition()
             elseif action == "back" then
                 gameState = "gameover"
             end
@@ -2252,10 +2829,22 @@ function love.keypressed(key)
 
     -- Gameover state
     if gameState == "gameover" then
+        -- During title_hold phase, any key triggers reveal
+        if gameOverAnim.phase == "title_hold" then
+            triggerGameOverReveal()
+            return
+        end
+
+        -- Block gameplay inputs until animation is complete
+        if gameOverAnim.phase ~= "complete" then
+            return
+        end
+
+        -- Animation complete, accept inputs
         if key == "escape" then
             love.event.quit()
         elseif key == "r" then
-            startNewRun()
+            triggerRebootAnimation()
         elseif key == "s" then
             gameState = "skilltree"
             SkillTree:startTransition()
@@ -2268,16 +2857,26 @@ function love.keypressed(key)
         return
     end
 
+    -- Level-up UI takes priority when pending
+    if Roguelite.levelUpPending then
+        if LevelUpUI:keypressed(key, Roguelite) then
+            return
+        end
+    end
+
     -- Playing state
     if key == "escape" then
         gameState = "gameover"
+        initGameOverAnim()
         Sounds.stopMusic()
-    elseif key == "1" then
+    elseif key == "space" and not Roguelite.levelUpPending then
+        tryDash()
+    elseif key == "1" and not Roguelite.levelUpPending then
         activateLaser()
-    elseif key == "2" then
+    elseif key == "2" and not Roguelite.levelUpPending then
         activatePlasma()
     elseif key == "r" then
-        startNewRun()
+        triggerRebootAnimation()
     elseif key == "g" then
         godMode = not godMode
     elseif key == "x" then
@@ -2313,17 +2912,24 @@ function love.mousepressed(x, y, button)
         return
     end
 
+    -- Level-up UI mouse handling
+    if Roguelite.levelUpPending then
+        if LevelUpUI:mousepressed(gx, gy, button, Roguelite) then
+            return
+        end
+    end
+
     -- Skill tree mouse handling
     if gameState == "skilltree" then
         local action = SkillTree:mousepressed(gx, gy, button)
         if action == "play" then
-            startNewRun()
+            SkillTree:startPlayTransition()
         end
         return
     end
 
-    -- Manual fire mode: left click to fire
-    if button == 1 and not autoFire and gameState == "playing" then
+    -- Manual fire mode: left click to fire (but not during level-up)
+    if button == 1 and not autoFire and gameState == "playing" and not Roguelite.levelUpPending then
         fireProjectile()
     end
 end
@@ -2342,6 +2948,12 @@ end
 
 function love.mousemoved(x, y)
     local gx, gy = screenToGame(x, y)
+
+    -- Level-up UI mouse handling
+    if Roguelite.levelUpPending then
+        LevelUpUI:mousemoved(gx, gy, Roguelite)
+        return
+    end
 
     -- Skill tree mouse handling
     if gameState == "skilltree" then

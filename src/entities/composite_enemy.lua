@@ -55,6 +55,7 @@ function CompositeEnemy:new(x, y, template, depth, parent, parentSide)
     -- State
     self.dead = false
     self.flashTimer = 0
+    self.hitFlashTimer = 0  -- Full-body flash on any hit
     self.knockbackX = 0
     self.knockbackY = 0
     self.rotation = 0
@@ -139,6 +140,11 @@ function CompositeEnemy:update(dt)
             self.coreFlashTimer = self.coreFlashTimer - dt
         end
 
+        -- Update hit flash timer
+        if self.hitFlashTimer > 0 then
+            self.hitFlashTimer = self.hitFlashTimer - dt
+        end
+
         -- Apply knockback
         if self.knockbackX ~= 0 or self.knockbackY ~= 0 then
             self.x = self.x + self.knockbackX * dt
@@ -172,6 +178,9 @@ function CompositeEnemy:update(dt)
         end
         if self.coreFlashTimer > 0 then
             self.coreFlashTimer = self.coreFlashTimer - dt
+        end
+        if self.hitFlashTimer > 0 then
+            self.hitFlashTimer = self.hitFlashTimer - dt
         end
     end
 
@@ -274,6 +283,12 @@ function CompositeEnemy:drawSelf()
     local radius = self.size * self.scale
     local coreRadius = radius * 0.92
 
+    -- Compute full-body hit flash intensity (0 to 1)
+    local hitFlash = 0
+    if self.hitFlashTimer > 0 then
+        hitFlash = self.hitFlashTimer / HIT_FLASH_DURATION
+    end
+
     -- Build vertices using world transform
     local verts = {}
     for _, v in ipairs(shape) do
@@ -293,27 +308,39 @@ function CompositeEnemy:drawSelf()
 
     local baseColor = self.color
 
+    -- Apply hit flash to base color (lerp toward white)
+    local drawColor = baseColor
+    if hitFlash > 0 then
+        drawColor = {
+            lume.lerp(baseColor[1], 1, hitFlash),
+            lume.lerp(baseColor[2], 1, hitFlash),
+            lume.lerp(baseColor[3], 1, hitFlash),
+        }
+    end
+
     -- Outer glow
-    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.15)
+    love.graphics.setColor(drawColor[1], drawColor[2], drawColor[3], 0.15 + hitFlash * 0.3)
     love.graphics.setLineWidth(8)
     love.graphics.polygon("line", verts)
 
     -- Mid glow
-    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.25)
+    love.graphics.setColor(drawColor[1], drawColor[2], drawColor[3], 0.25 + hitFlash * 0.3)
     love.graphics.setLineWidth(4)
     love.graphics.polygon("line", verts)
 
-    -- Dark fill (core)
-    local coreColor = baseColor
+    -- Dark fill (core) - flash white when hit through gap OR full-body hit
+    local coreColor = drawColor
     if self.coreFlashTimer > 0 then
         local flashIntensity = self.coreFlashTimer / CORE_FLASH_DURATION
         coreColor = {
-            lume.lerp(baseColor[1], 1, flashIntensity),
-            lume.lerp(baseColor[2], 1, flashIntensity),
-            lume.lerp(baseColor[3], 1, flashIntensity),
+            lume.lerp(drawColor[1], 1, flashIntensity),
+            lume.lerp(drawColor[2], 1, flashIntensity),
+            lume.lerp(drawColor[3], 1, flashIntensity),
         }
     end
-    love.graphics.setColor(coreColor[1] * 0.15, coreColor[2] * 0.15, coreColor[3] * 0.15, 0.9)
+    -- Core fill brightness increases during hit flash
+    local coreBrightness = 0.15 + hitFlash * 0.4
+    love.graphics.setColor(coreColor[1] * coreBrightness, coreColor[2] * coreBrightness, coreColor[3] * coreBrightness, 0.9)
     love.graphics.polygon("fill", coreVerts)
 
     -- Thick border for alive sides
@@ -323,8 +350,16 @@ function CompositeEnemy:drawSelf()
         if part.alive then
             local x1, y1, x2, y2 = self:getSideVertices(i)
 
+            -- Determine side color (flash red when hit, but override with white during full-body hit flash)
             local sideColor
-            if part.flashTimer > 0 then
+            if hitFlash > 0 then
+                -- Full-body hit flash overrides per-side flash
+                sideColor = {
+                    lume.lerp(drawColor[1] * 0.7, 1, hitFlash),
+                    lume.lerp(drawColor[2] * 0.7, 1, hitFlash),
+                    lume.lerp(drawColor[3] * 0.7, 1, hitFlash),
+                }
+            elseif part.flashTimer > 0 then
                 local flashIntensity = part.flashTimer / PART_FLASH_DURATION
                 sideColor = {
                     lume.lerp(baseColor[1] * 0.7, 1, flashIntensity),
@@ -332,7 +367,7 @@ function CompositeEnemy:drawSelf()
                     lume.lerp(baseColor[3] * 0.7, 0.3, flashIntensity),
                 }
             else
-                sideColor = {baseColor[1] * 0.7, baseColor[2] * 0.7, baseColor[3] * 0.7}
+                sideColor = {drawColor[1] * 0.7, drawColor[2] * 0.7, drawColor[3] * 0.7}
             end
 
             love.graphics.setColor(sideColor[1], sideColor[2], sideColor[3], 1)
@@ -527,6 +562,9 @@ function CompositeEnemy:takeDamageOnNode(amount, angle, impactData)
 
     self.hp = newHp
 
+    -- Trigger full-body hit flash
+    self.hitFlashTimer = HIT_FLASH_DURATION
+
     -- Break parts
     local flyingPartsData = {}
     local detachedChildren = {}
@@ -558,6 +596,30 @@ function CompositeEnemy:takeDamageOnNode(amount, angle, impactData)
 
         -- Clamp rotation speed to prevent infinite spin
         root.rotationSpeed = lume.clamp(root.rotationSpeed, -TORQUE_MAX_ROTATION_SPEED, TORQUE_MAX_ROTATION_SPEED)
+
+        -- Green impact burst at hit location
+        DebrisManager:spawnImpactBurst(hitX, hitY, angle)
+
+        -- Spawn blood particles (shape-matching)
+        local velocityRatio = impactVelocity / PROJECTILE_SPEED
+        local damageRatio = finalDamage / PROJECTILE_DAMAGE
+        local intensity = IMPACT_BASE_INTENSITY
+            + (velocityRatio - 1) * IMPACT_VELOCITY_SCALE
+            + (damageRatio - 1) * IMPACT_DAMAGE_SCALE
+        intensity = math.max(0.2, math.min(intensity, IMPACT_MAX_INTENSITY))
+        DebrisManager:spawnBloodParticles(hitX, hitY, angle, self.shapeName, self.color, intensity)
+    end
+
+    -- Trigger feedback (screen shake)
+    if finalDamage >= 0.5 then
+        Feedback:trigger("small_hit", {
+            damage_dealt = finalDamage,
+            current_hp = self.hp,
+            max_hp = self.maxHp,
+            impact_angle = angle,
+            impact_x = hitX,
+            impact_y = hitY,
+        })
     end
 
     -- Check death

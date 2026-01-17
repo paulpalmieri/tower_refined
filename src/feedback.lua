@@ -62,6 +62,25 @@ Feedback.presets = {
         shake = { intensity = 3, duration = 0.1 },
         hitStop = { duration = 0.02 },
     },
+    -- Enemy attack feedback
+    enemy_projectile_hit = {
+        shake = { intensity = 3, duration = 0.08 },
+    },
+    kamikaze_explosion = {
+        shake = { intensity = 6, duration = 0.15 },
+        hitStop = { duration = 0.04 },
+    },
+    aoe_trigger = {
+        shake = { intensity = 4, duration = 0.1 },
+    },
+    -- Dash feedback
+    dash_launch = {
+        shake = { intensity = 4, duration = 0.08 },
+        hitStop = { duration = 0.02 },
+    },
+    dash_land = {
+        shake = { intensity = 3, duration = 0.06 },
+    },
 }
 
 local function triggerShake(intensity, duration)

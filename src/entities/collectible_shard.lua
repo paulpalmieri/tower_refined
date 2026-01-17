@@ -26,8 +26,8 @@ function CollectibleShard:new(params)
     self.catchTime = 0
     self.startX = 0
     self.startY = 0
-    self.targetX = CENTER_X
-    self.targetY = CENTER_Y
+    self.targetX = 0
+    self.targetY = 0
 
     -- Visual feedback
     self.pulseTimer = lume.random(0, math.pi * 2)

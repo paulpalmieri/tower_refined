@@ -13,7 +13,7 @@ function Camera:init(x, y)
     self.y = y or CENTER_Y
 end
 
--- Update camera to follow target instantly
+-- Update camera to instantly follow target (locked to player)
 function Camera:update(targetX, targetY)
     self.x = targetX
     self.y = targetY

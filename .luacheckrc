@@ -74,6 +74,7 @@ globals = {
     "totalKills",
     "gameSpeedIndex",
     "startNewRun",
+    "triggerRebootAnimation",
 
     -- Window constants
     "WINDOW_WIDTH",
@@ -288,6 +289,7 @@ globals = {
     "GAP_DAMAGE_BONUS",
     "PART_FLASH_DURATION",
     "CORE_FLASH_DURATION",
+    "HIT_FLASH_DURATION",
     "IMPACT_SPIN_INCREASE_MIN",
     "IMPACT_SPIN_INCREASE_MAX",
     "IMPACT_DISPLACEMENT",
@@ -346,6 +348,13 @@ globals = {
     "INTRO_LINE_PAUSE",
     "INTRO_TEXT_2",
     "INTRO_ALERT_TEXT",
+
+    -- Game over animation
+    "GAMEOVER_FADE_DURATION",
+    "GAMEOVER_TITLE_FADE_DURATION",
+    "GAMEOVER_TITLE_HOLD_TIMEOUT",
+    "GAMEOVER_REVEAL_DURATION",
+    "GAMEOVER_STAT_STAGGER",
 
     -- Post-processing
     "PostFX",
@@ -427,6 +436,111 @@ globals = {
     -- Camera system
     "Camera",
     "PLAYER_MOVE_SPEED",
+    "CAMERA_LEAD_ENABLED",
+    "CAMERA_LEAD_FACTOR",
+    "CAMERA_LEAD_SMOOTHING",
+
+    -- Parallax system
+    "Parallax",
+    "PARALLAX_FAR_FACTOR",
+    "PARALLAX_FAR_GRID_SIZE",
+    "PARALLAX_FAR_ALPHA",
+    "PARALLAX_FAR_COLOR",
+    "PARALLAX_MID_FACTOR",
+    "PARALLAX_DUST_COUNT",
+    "PARALLAX_DUST_SIZE_MIN",
+    "PARALLAX_DUST_SIZE_MAX",
+    "PARALLAX_DUST_ALPHA_MAX",
+    "PARALLAX_DUST_DRIFT_SPEED",
+    "PARALLAX_DUST_COLOR",
+    "PARALLAX_DUST_FACTOR",
+    "PARALLAX_STAR_COUNT",
+    "PARALLAX_STAR_FACTOR",
+    "PARALLAX_STAR_SIZE",
+    "PARALLAX_STAR_ALPHA",
+    "PARALLAX_STAR_COLOR",
+    "GRAVITY_WELL_ENABLED",
+    "GRAVITY_WELL_STRENGTH",
+    "GRAVITY_WELL_RADIUS",
+    "FLOOR_GLOW_ENABLED",
+    "FLOOR_GLOW_RADIUS",
+    "FLOOR_GLOW_INTENSITY",
+    "FLOOR_GLOW_COLOR",
+    "GRID_LIGHT_INTENSITY",
+    "GRID_ENEMY_GLOW_RADIUS",
+    "GRID_ENEMY_GLOW_INTENSITY",
+
+    -- Enemy attack system
+    "EnemyProjectile",
+    "AoEWarning",
+    "enemyProjectiles",
+    "aoeWarnings",
+
+    -- Triangle (Kamikaze)
+    "TRIANGLE_CHARGE_RANGE",
+    "TRIANGLE_CHARGE_SPEED_MULT",
+    "TRIANGLE_EXPLOSION_RADIUS",
+    "TRIANGLE_EXPLOSION_DAMAGE",
+    "TRIANGLE_GLOW_COLOR",
+
+    -- Square (Ranged)
+    "SQUARE_ATTACK_RANGE",
+    "SQUARE_ATTACK_COOLDOWN",
+    "SQUARE_PROJECTILE_SPEED",
+    "SQUARE_PROJECTILE_DAMAGE",
+    "SQUARE_PROJECTILE_SIZE",
+
+    -- Pentagon (AoE Telegraph)
+    "PENTAGON_ATTACK_RANGE",
+    "PENTAGON_ATTACK_COOLDOWN",
+    "PENTAGON_TELEGRAPH_TIME",
+    "PENTAGON_AOE_RADIUS",
+    "PENTAGON_AOE_DAMAGE",
+
+    -- Hexagon (Mini-Hex Swarm)
+    "HEXAGON_ATTACK_RANGE",
+    "HEXAGON_ATTACK_COOLDOWN",
+    "HEXAGON_MINI_COUNT",
+    "HEXAGON_MINI_SPEED",
+    "HEXAGON_MINI_DAMAGE",
+    "HEXAGON_MINI_TURN_RATE",
+    "HEXAGON_MINI_SIZE",
+
+    -- Roguelite progression system
+    "Roguelite",
+    "LevelUpUI",
+    "DamageAura",
+    "damageAura",
+    "XP_BASE_REQUIREMENT",
+    "XP_SCALING_FACTOR",
+    "MAJOR_UPGRADE_LEVELS",
+    "MAX_MAJOR_UPGRADES",
+    "LEVELUP_CHOICES",
+    "AURA_BASE_RADIUS",
+    "AURA_BASE_DAMAGE",
+    "AURA_TICK_INTERVAL",
+    "AURA_COLOR",
+
+    -- Play transition (Skill Tree -> Gameplay)
+    "PLAY_TRANSITION_DURATION",
+
+    -- Dash ability
+    "DASH_DISTANCE",
+    "DASH_MAX_CHARGES",
+    "DASH_RECHARGE_TIME",
+    "DASH_ANTICIPATION_TIME",
+    "DASH_DURATION",
+    "DASH_RECOVERY_TIME",
+    "DASH_SQUASH_AMOUNT",
+    "DASH_STRETCH_AMOUNT",
+    "DASH_OVERSHOOT_SQUASH",
+    "DASH_SPRING_FREQUENCY",
+    "DASH_SPRING_DAMPING",
+    "DASH_AFTERIMAGE_INTERVAL",
+    "DASH_AFTERIMAGE_LIFETIME",
+    "DASH_UI_RADIUS",
+    "DASH_UI_ARC_SPAN",
+    "DASH_UI_GAP",
 }
 
 -- Exclude library files from linting

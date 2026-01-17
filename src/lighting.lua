@@ -195,4 +195,9 @@ function Lighting:getLightCount()
     return #lights
 end
 
+-- Get all active lights (for grid illumination)
+function Lighting:getLights()
+    return lights
+end
+
 return Lighting

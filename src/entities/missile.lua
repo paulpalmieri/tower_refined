@@ -77,7 +77,10 @@ function Missile:update(dt)
     self.pulse = self.pulse + dt * 12
 
     -- Check bounds (generous margin for homing)
-    if self.x < -100 or self.x > WINDOW_WIDTH + 100 or self.y < -100 or self.y > WINDOW_HEIGHT + 100 then
+    local left, top, right, bottom = Camera:getBounds()
+    local margin = 100
+    if self.x < left - margin or self.x > right + margin or
+       self.y < top - margin or self.y > bottom + margin then
         self.dead = true
     end
 end

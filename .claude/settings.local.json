@@ -13,7 +13,8 @@
       "Bash(gh repo create:*)",
       "Bash(git mv:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nSimplify codebase: remove powers, XP, and complex mechanics\n\n- Remove power system \\(ricochet, multishot, pierce, burn\\)\n- Remove XP/leveling system entirely\n- Remove level-up card selection UI\n- Keep shop with 4 upgrades: fireRate, damage, hp, nukeCooldown\n- Rename Blob to Enemy throughout codebase\n- Reorganize files into src/ directory structure\n- Update CLAUDE.md to reflect simplified architecture\n- Create GAME_DESIGN.md template for design ideas\n- Delete unused debugoverlay.lua\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nConvert to Vampire Survivors gameplay archetype\n\n- Add WASD/arrow key movement to player character\n- Add camera system that follows player\n- Implement infinite scrolling grid\n- Change enemy spawning to screen edges\n- Update projectile bounds to use camera\n- Remap game speed to Z, auto-fire to X\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }

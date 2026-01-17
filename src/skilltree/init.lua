@@ -15,6 +15,13 @@ local canvas = nil
 local transition = nil
 local hoveredNode = nil
 
+-- Play transition state (simple glitch/fade)
+local playTransition = {
+    active = false,
+    timer = 0,
+    onComplete = nil,
+}
+
 -- Play button state
 local playButton = {
     x = 0,
@@ -80,6 +87,47 @@ end
 
 function SkillTree:isTransitionComplete()
     return transition:isComplete() or transition.phase == "none"
+end
+
+-- ===================
+-- PLAY TRANSITION (Glitch/Fade)
+-- ===================
+
+function SkillTree:startPlayTransition(onComplete)
+    playTransition.active = true
+    playTransition.timer = 0
+    playTransition.onComplete = onComplete
+end
+
+function SkillTree:updatePlayTransition(dt)
+    if not playTransition.active then return false end
+
+    playTransition.timer = playTransition.timer + dt
+
+    if playTransition.timer >= PLAY_TRANSITION_DURATION then
+        playTransition.active = false
+        if playTransition.onComplete then
+            playTransition.onComplete()
+        end
+        return true  -- Transition complete
+    end
+
+    return false
+end
+
+function SkillTree:isPlayTransitionActive()
+    return playTransition.active
+end
+
+function SkillTree:drawPlayTransitionOverlay()
+    if not playTransition.active then return end
+
+    local progress = playTransition.timer / PLAY_TRANSITION_DURATION
+
+    -- Fade to black
+    local fadeAlpha = progress * progress  -- Ease-in
+    love.graphics.setColor(0, 0, 0, fadeAlpha)
+    love.graphics.rectangle("fill", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
 end
 
 -- ===================

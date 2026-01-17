@@ -88,20 +88,23 @@ local function createPoolFromSource(source, size)
     return pool
 end
 
-local function playFromPool(pool, volume, pitchVar)
+local function playFromPool(pool, volume, pitchVar, volVar)
     if not pool or #pool == 0 then return end
     pitchVar = pitchVar or 0
+    volVar = volVar or 0
+    local finalVolume = volume * (1 + (math.random() * 2 - 1) * volVar)
+    local finalPitch = 1 + (math.random() * 2 - 1) * pitchVar
     for _, src in ipairs(pool) do
         if not src:isPlaying() then
-            src:setVolume(volume)
-            src:setPitch(1 + (math.random() * 2 - 1) * pitchVar)
+            src:setVolume(finalVolume)
+            src:setPitch(finalPitch)
             src:play()
             return
         end
     end
     pool[1]:stop()
-    pool[1]:setVolume(volume)
-    pool[1]:setPitch(1 + (math.random() * 2 - 1) * pitchVar)
+    pool[1]:setVolume(finalVolume)
+    pool[1]:setPitch(finalPitch)
     pool[1]:play()
 end
 
@@ -138,7 +141,7 @@ function Sounds.init()
 end
 
 function Sounds.playShoot()
-    playFromPool(shootPool, SOUND_SHOOT_VOLUME, 0.08)
+    playFromPool(shootPool, SOUND_SHOOT_VOLUME, 0.15, 0.15)
 end
 
 function Sounds.playPlasmaFire()

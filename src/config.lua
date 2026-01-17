@@ -4,7 +4,7 @@
 -- ===================
 -- INTRO SEQUENCE
 -- ===================
-INTRO_ENABLED = true
+INTRO_ENABLED = false
 INTRO_BLACK_DURATION = 1.0
 INTRO_TEXT_HOLD_1 = 3.0          -- Pause after first text
 INTRO_TEXT_HOLD_2 = 3.0          -- Pause after second text
@@ -17,6 +17,15 @@ INTRO_TEXT_1_LINE2 = "The polygons started a revolution against the circles."
 INTRO_LINE_PAUSE = 1.5               -- Pause between sentences
 INTRO_TEXT_2 = "You're the last one of them"
 INTRO_ALERT_TEXT = "SYSTEM ONLINE"
+
+-- ===================
+-- GAME OVER ANIMATION
+-- ===================
+GAMEOVER_FADE_DURATION = 0.4
+GAMEOVER_TITLE_FADE_DURATION = 0.5
+GAMEOVER_TITLE_HOLD_TIMEOUT = 2.0
+GAMEOVER_REVEAL_DURATION = 0.6
+GAMEOVER_STAT_STAGGER = 0.1
 
 -- ===================
 -- WINDOW (16:9 aspect ratio)
@@ -43,10 +52,10 @@ NEON_CYAN = {0.00, 0.90, 0.90}
 NEON_YELLOW = {0.90, 0.90, 0.00}
 NEON_RED = {0.90, 0.20, 0.20}
 NEON_BACKGROUND = {0.05, 0.01, 0.03}
-NEON_GRID = {0.00, 0.15, 0.00}
+NEON_GRID = {0.00, 0.35, 0.00}
 
 -- Grid settings
-GRID_SIZE = 40
+GRID_SIZE = 25
 GRID_LINE_WIDTH = 1
 
 -- ===================
@@ -212,6 +221,7 @@ PART_SETTLE_VELOCITY = 25          -- Speed threshold to consider settled
 GAP_DAMAGE_BONUS = 1.5             -- 50% bonus when bullet passes through gap
 PART_FLASH_DURATION = 0.08         -- Duration of side flash on hit
 CORE_FLASH_DURATION = 0.12         -- Duration of core flash on gap hit
+HIT_FLASH_DURATION = 0.1           -- Full-body flash on any hit
 
 -- Impact stagger (when parts break off)
 IMPACT_SPIN_INCREASE_MIN = 1.5     -- Min rotation speed added per part lost (rad/s)
@@ -469,3 +479,102 @@ SHAPE_COLORS = {
     hexagon  = {1.00, 0.40, 0.10},  -- Orange
     heptagon = {1.00, 0.90, 0.80},  -- White-gold
 }
+
+-- ===================
+-- ENEMY ATTACKS
+-- ===================
+-- Triangle (Kamikaze)
+TRIANGLE_CHARGE_RANGE = 180          -- Distance to start charging
+TRIANGLE_CHARGE_SPEED_MULT = 2.0     -- Speed multiplier when charging
+TRIANGLE_EXPLOSION_RADIUS = 70       -- AoE radius on contact
+TRIANGLE_EXPLOSION_DAMAGE = 12       -- Damage dealt on explosion
+TRIANGLE_GLOW_COLOR = {1.0, 0.3, 0.3}
+
+-- Square (Ranged)
+SQUARE_ATTACK_RANGE = 350            -- Distance to start shooting
+SQUARE_ATTACK_COOLDOWN = 2.5         -- Seconds between shots
+SQUARE_PROJECTILE_SPEED = 180        -- Bullet speed
+SQUARE_PROJECTILE_DAMAGE = 8         -- Damage per hit
+SQUARE_PROJECTILE_SIZE = 5
+
+-- Pentagon (AoE Telegraph)
+PENTAGON_ATTACK_RANGE = 400          -- Range to trigger attack
+PENTAGON_ATTACK_COOLDOWN = 5.0       -- Seconds between attacks
+PENTAGON_TELEGRAPH_TIME = 1.8        -- Warning duration (player can dodge)
+PENTAGON_AOE_RADIUS = 90             -- Damage zone size
+PENTAGON_AOE_DAMAGE = 18
+
+-- Hexagon (Mini-Hex Swarm)
+HEXAGON_ATTACK_RANGE = 350           -- Range to spawn mini-hexes
+HEXAGON_ATTACK_COOLDOWN = 4.0        -- Seconds between spawns
+HEXAGON_MINI_COUNT = 3               -- Projectiles per spawn
+HEXAGON_MINI_SPEED = 120             -- Homing speed
+HEXAGON_MINI_DAMAGE = 6              -- Damage per mini-hex
+HEXAGON_MINI_TURN_RATE = 2.5         -- Radians/sec homing
+HEXAGON_MINI_SIZE = 6                -- Mini-hex size
+
+-- ===================
+-- ROGUELITE PROGRESSION
+-- ===================
+XP_BASE_REQUIREMENT = 20             -- XP needed for level 2
+XP_SCALING_FACTOR = 1.5              -- XP multiplier per level
+MAJOR_UPGRADE_LEVELS = {2, 5, 10, 15}  -- Levels that offer major upgrades
+MAX_MAJOR_UPGRADES = 4               -- Max major abilities per run
+LEVELUP_CHOICES = 5                  -- Number of upgrade options shown
+
+-- ===================
+-- DAMAGE AURA
+-- ===================
+AURA_BASE_RADIUS = 100               -- Base damage field radius
+AURA_BASE_DAMAGE = 5                 -- Base damage per tick
+AURA_TICK_INTERVAL = 3.0             -- Seconds between damage ticks
+AURA_COLOR = {1.0, 0.3, 0.3}         -- Red glow color
+
+-- ===================
+-- PLAY TRANSITION (Skill Tree -> Gameplay)
+-- ===================
+PLAY_TRANSITION_DURATION = 1.0       -- Fade to black duration
+
+-- ===================
+-- GRID EFFECTS
+-- ===================
+-- Gravity well (grid displacement around player)
+GRAVITY_WELL_ENABLED = true
+GRAVITY_WELL_STRENGTH = 12              -- Push force
+GRAVITY_WELL_RADIUS = 200               -- Effect radius
+
+-- ===================
+-- CAMERA LEAD
+-- ===================
+CAMERA_LEAD_ENABLED = true
+CAMERA_LEAD_FACTOR = 0.15
+CAMERA_LEAD_SMOOTHING = 5.0
+
+-- ===================
+-- DASH ABILITY
+-- ===================
+DASH_DISTANCE = 180              -- Pixels traveled
+DASH_MAX_CHARGES = 2
+DASH_RECHARGE_TIME = 2.5         -- Seconds per charge
+
+-- Timing (~0.3s total for snappy feel)
+DASH_ANTICIPATION_TIME = 0.05    -- Wind-up squash
+DASH_DURATION = 0.15             -- Main movement
+DASH_RECOVERY_TIME = 0.10        -- Landing settle
+
+-- Squash & Stretch
+DASH_SQUASH_AMOUNT = 0.7         -- Anticipation scale (30% squash)
+DASH_STRETCH_AMOUNT = 1.5        -- Dash scale (50% stretch)
+DASH_OVERSHOOT_SQUASH = 0.8      -- Landing scale (20% squash)
+DASH_SPRING_FREQUENCY = 10
+DASH_SPRING_DAMPING = 8
+
+-- Afterimages
+DASH_AFTERIMAGE_INTERVAL = 0.025
+DASH_AFTERIMAGE_LIFETIME = 0.12
+
+-- UI Indicator
+DASH_UI_RADIUS = 35              -- Arc radius from turret center
+DASH_UI_ARC_SPAN = 2.094         -- ~120 degrees in radians
+DASH_UI_GAP = 0.1                -- Gap between segments in radians
+

@@ -34,15 +34,16 @@ Lighting = require "src.lighting"
 DebugConsole = require "src.debug_console"
 SkillTree = require "src.skilltree"
 PostFX = require "src.postfx"
+Intro = require "src.intro"
 
 -- ===================
 -- GAME STATE
 -- ===================
-local gameState = "playing"    -- "playing", "gameover", "skilltree"
+local gameState = "playing"    -- "intro", "playing", "gameover", "skilltree"
 gameSpeedIndex = 4             -- Index into GAME_SPEEDS (starts at 1x)
 local debugMode = false        -- Toggle with F3
 local godMode = false          -- Toggle with G (tower invincibility)
-local autoFire = true          -- Toggle with A (auto-fire mode)
+local autoFire = false         -- Toggle with A (auto-fire mode)
 local isFullscreen = false     -- Toggle with B (borderless fullscreen)
 
 -- ===================
@@ -805,10 +806,14 @@ local function spawnEnemy()
     local enemyType = "basic"
     local roll = lume.random()
 
-    -- Fixed spawn weights: 50% basic, 30% fast, 20% tank
-    if roll < 0.2 then
+    -- Fixed spawn weights: 40% basic, 25% fast, 18% tank, 12% brute, 5% elite
+    if roll < 0.05 then
+        enemyType = "elite"
+    elseif roll < 0.17 then
+        enemyType = "brute"
+    elseif roll < 0.35 then
         enemyType = "tank"
-    elseif roll < 0.5 then
+    elseif roll < 0.60 then
         enemyType = "fast"
     end
 
@@ -1360,8 +1365,18 @@ function love.load()
     DebugConsole:init()
     SkillTree:init()
     PostFX:init()
+    Intro:init()
     initGround()
-    startNewRun()
+
+    -- Start in intro state if enabled, otherwise go straight to playing
+    if INTRO_ENABLED then
+        gameState = "intro"
+        Intro:start()
+        -- Create tower for intro animation (but don't start full run yet)
+        tower = Turret(CENTER_X, CENTER_Y)
+    else
+        startNewRun()
+    end
 end
 
 function love.resize(w, h)
@@ -1375,6 +1390,16 @@ function love.update(dt)
 
     -- Update post-processing effects (always, for animated shaders)
     PostFX:update(dt)
+
+    -- Update intro if active
+    if gameState == "intro" then
+        Intro:update(dt)
+        if Intro:isComplete() then
+            gameState = "playing"
+            startNewRun()
+        end
+        return
+    end
 
     -- Update skill tree if active
     if gameState == "skilltree" then
@@ -1746,6 +1771,33 @@ function love.draw()
     love.graphics.translate(OFFSET_X, OFFSET_Y)
     love.graphics.scale(SCALE, SCALE)
 
+    -- Intro: CRT only, custom drawing
+    if gameState == "intro" then
+        -- For text phases, draw intro's own content
+        if not Intro:isInFadeOrLater() then
+            Intro:draw()
+        else
+            -- For fade/alert/barrel phases, draw arena and turret
+            drawArenaFloor()
+
+            -- Draw turret with barrel extension
+            if Intro:isInBarrelPhase() then
+                tower:draw(Intro:getBarrelExtend())
+            else
+                tower:drawBaseOnly()
+            end
+
+            -- Draw intro overlays (fade, alert text)
+            Intro:drawGameElements()
+        end
+
+        drawScopeCursor()
+        DebugConsole:draw()
+        love.graphics.pop()
+        PostFX:endCRT()
+        return
+    end
+
     -- Skill tree: CRT only (no game effects)
     if gameState == "skilltree" then
         SkillTree:draw()
@@ -1912,6 +1964,18 @@ function love.keypressed(key)
     -- S cycles game speed
     if key == "s" and gameState == "playing" then
         gameSpeedIndex = (gameSpeedIndex % #GAME_SPEEDS) + 1
+        return
+    end
+
+    -- Intro state: any key skips
+    if gameState == "intro" then
+        if key == "escape" then
+            love.event.quit()
+        elseif key == "b" then
+            toggleFullscreen()
+        else
+            Intro:skip()
+        end
         return
     end
 

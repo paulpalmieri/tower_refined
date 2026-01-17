@@ -61,10 +61,22 @@ function DebrisManager:spawnExplosionBurst(x, y, angle, shape, color, velocity)
     local burstColor = color or NEON_PRIMARY or {0, 1, 0}
     local baseSpeed = math.max(velocity, 400)
 
-    -- Shape-matching particle burst
-    for _ = 1, 15 do
-        local sparkAngle = angle + lume.random(-0.9, 0.9)
-        local speed = lume.random(baseSpeed * 0.5, baseSpeed * 1.5)
+    -- Bright center flash (white-tinted, very short-lived)
+    spawnParticle({
+        x = x,
+        y = y,
+        vx = 0,
+        vy = 0,
+        color = {1, 1, 1},
+        size = 18,
+        lifetime = 0.08,
+        shape = "square",
+    })
+
+    -- Shape-matching particle burst (increased from 15 to 20)
+    for _ = 1, 20 do
+        local sparkAngle = angle + lume.random(-1.1, 1.1)
+        local speed = lume.random(baseSpeed * 0.4, baseSpeed * 1.6)
 
         spawnParticle({
             x = x,
@@ -72,9 +84,26 @@ function DebrisManager:spawnExplosionBurst(x, y, angle, shape, color, velocity)
             vx = math.cos(sparkAngle) * speed,
             vy = math.sin(sparkAngle) * speed,
             color = burstColor,
-            size = lume.random(4, 8),
-            lifetime = lume.random(0.35, 0.55),
+            size = lume.random(4, 9),
+            lifetime = lume.random(0.3, 0.55),
             shape = shape,
+        })
+    end
+
+    -- Extra fast sparks that travel further (3 particles)
+    for _ = 1, 3 do
+        local sparkAngle = angle + lume.random(-0.4, 0.4)
+        local speed = baseSpeed * lume.random(1.8, 2.4)
+
+        spawnParticle({
+            x = x,
+            y = y,
+            vx = math.cos(sparkAngle) * speed,
+            vy = math.sin(sparkAngle) * speed,
+            color = burstColor,
+            size = lume.random(3, 5),
+            lifetime = lume.random(0.4, 0.6),
+            shape = "line",
         })
     end
 end

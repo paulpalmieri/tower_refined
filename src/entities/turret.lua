@@ -92,7 +92,28 @@ function Turret:fire()
     return Projectile(muzzleX, muzzleY, self.angle, self.projectileSpeed, self.damage)
 end
 
-function Turret:draw()
+function Turret:drawBaseOnly()
+    local flinchX = self.damageFlinch * math.cos(self.angle + math.pi) * 2
+    local flinchY = self.damageFlinch * math.sin(self.angle + math.pi) * 2
+    local drawX = self.x + flinchX
+    local drawY = self.y + flinchY
+
+    -- Base glow
+    love.graphics.setColor(BASE_COLOR[1], BASE_COLOR[2], BASE_COLOR[3], 0.15)
+    love.graphics.circle("fill", drawX, drawY, BASE_RADIUS + 8)
+
+    -- Base fill
+    love.graphics.setColor(BASE_FILL[1], BASE_FILL[2], BASE_FILL[3], 1)
+    love.graphics.circle("fill", drawX, drawY, BASE_RADIUS)
+
+    -- Base border
+    love.graphics.setColor(BASE_COLOR[1], BASE_COLOR[2], BASE_COLOR[3], 0.7)
+    love.graphics.setLineWidth(4)
+    love.graphics.circle("line", drawX, drawY, BASE_RADIUS)
+    love.graphics.setLineWidth(1)
+end
+
+function Turret:draw(barrelExtendOverride)
     local flinchX = self.damageFlinch * math.cos(self.angle + math.pi) * 2
     local flinchY = self.damageFlinch * math.sin(self.angle + math.pi) * 2
     local drawX = self.x + flinchX
@@ -118,6 +139,11 @@ function Turret:draw()
     -- ===================
     -- 2. BARREL (on top)
     -- ===================
+    local barrelExt = barrelExtendOverride or 1.0
+    if barrelExt <= 0 then
+        return  -- Skip barrel entirely if not extended
+    end
+
     love.graphics.push()
     love.graphics.translate(drawX, drawY)
     love.graphics.rotate(self.angle)
@@ -125,8 +151,11 @@ function Turret:draw()
     local kickBack = self.gunKick * 10
     local halfWidth = BARREL_WIDTH / 2
 
-    local barrelStart = -kickBack - BARREL_BACK
-    local barrelTotal = BARREL_LENGTH + BARREL_BACK
+    -- Scale barrel dimensions by extension amount
+    local effectiveLength = BARREL_LENGTH * barrelExt
+    local effectiveBack = BARREL_BACK * barrelExt
+    local barrelStart = -kickBack - effectiveBack
+    local barrelTotal = effectiveLength + effectiveBack
 
     -- Barrel glow (draw along X-axis to match firing direction)
     love.graphics.setColor(BARREL_COLOR[1], BARREL_COLOR[2], BARREL_COLOR[3], 0.2)

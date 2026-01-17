@@ -2,6 +2,23 @@
 -- All game tuning constants
 
 -- ===================
+-- INTRO SEQUENCE
+-- ===================
+INTRO_ENABLED = true
+INTRO_BLACK_DURATION = 1.0
+INTRO_TEXT_HOLD_1 = 3.0          -- Pause after first text
+INTRO_TEXT_HOLD_2 = 3.0          -- Pause after second text
+INTRO_FADE_DURATION = 1.0        -- Fade to game view
+INTRO_ALERT_DURATION = 1.5       -- "SYSTEM ONLINE" display
+INTRO_BARREL_SLIDE_DURATION = 0.8
+INTRO_TYPEWRITER_SPEED = 0.045   -- Seconds per character
+INTRO_TEXT_1_LINE1 = "In year 3001, a great war erupted."
+INTRO_TEXT_1_LINE2 = "The polygons started a revolution against the circles."
+INTRO_LINE_PAUSE = 1.5               -- Pause between sentences
+INTRO_TEXT_2 = "You're the last one of them"
+INTRO_ALERT_TEXT = "SYSTEM ONLINE"
+
+-- ===================
 -- WINDOW
 -- ===================
 WINDOW_WIDTH = 800
@@ -62,6 +79,23 @@ ENEMY_SHAPES = {
         {-0.588, 0.809},
         {-0.951, -0.309},
     },
+    hexagon = {
+        {0, -1},
+        {0.866, -0.5},
+        {0.866, 0.5},
+        {0, 1},
+        {-0.866, 0.5},
+        {-0.866, -0.5},
+    },
+    heptagon = {
+        {0, -1},
+        {0.782, -0.623},
+        {0.975, 0.223},
+        {0.434, 0.901},
+        {-0.434, 0.901},
+        {-0.975, 0.223},
+        {-0.782, -0.623},
+    },
 }
 
 -- ===================
@@ -70,7 +104,7 @@ ENEMY_SHAPES = {
 ENEMY_TYPES = {
     basic = {
         shape = "triangle",
-        -- hp calculated from shape: 1 + sides
+        -- hp calculated from shape: sides
         speed = 55,
         scale = 1.0,
         baseSize = 18,
@@ -78,7 +112,7 @@ ENEMY_TYPES = {
     },
     fast = {
         shape = "square",
-        -- hp calculated from shape: 1 + sides
+        -- hp calculated from shape: sides
         speed = 100,
         scale = 0.8,
         baseSize = 14,
@@ -86,11 +120,27 @@ ENEMY_TYPES = {
     },
     tank = {
         shape = "pentagon",
-        -- hp calculated from shape: 1 + sides
+        -- hp calculated from shape: sides
         speed = 35,
         scale = 1.4,
         baseSize = 24,
         color = {1.00, 1.00, 0.00},  -- Yellow
+    },
+    brute = {
+        shape = "hexagon",
+        -- hp calculated from shape: sides
+        speed = 25,
+        scale = 1.6,
+        baseSize = 28,
+        color = {1.00, 0.40, 0.10},  -- Orange
+    },
+    elite = {
+        shape = "heptagon",
+        -- hp calculated from shape: sides
+        speed = 45,
+        scale = 1.8,
+        baseSize = 32,
+        color = {1.00, 0.90, 0.80},  -- White-gold
     },
 }
 
@@ -129,9 +179,9 @@ KNOCKBACK_DURATION = 0.5
 -- ===================
 -- SPAWNING
 -- ===================
-SPAWN_RATE = 1.5
+SPAWN_RATE = 0.4
 MAX_ENEMIES = 40
-SPAWN_RATE_INCREASE = 0.08
+SPAWN_RATE_INCREASE = 0.03
 SPAWN_DISTANCE = 500
 
 -- ===================

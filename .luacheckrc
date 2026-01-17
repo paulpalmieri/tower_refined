@@ -41,6 +41,7 @@ globals = {
     "Lighting",
     "DebugConsole",
     "SkillTree",
+    "Intro",
 
     -- Global functions
     "spawnParticle",
@@ -320,6 +321,21 @@ globals = {
     -- Font
     "FONT_PATH",
     "FONT_SIZE",
+
+    -- Intro sequence
+    "INTRO_ENABLED",
+    "INTRO_BLACK_DURATION",
+    "INTRO_TEXT_HOLD_1",
+    "INTRO_TEXT_HOLD_2",
+    "INTRO_FADE_DURATION",
+    "INTRO_ALERT_DURATION",
+    "INTRO_BARREL_SLIDE_DURATION",
+    "INTRO_TYPEWRITER_SPEED",
+    "INTRO_TEXT_1_LINE1",
+    "INTRO_TEXT_1_LINE2",
+    "INTRO_LINE_PAUSE",
+    "INTRO_TEXT_2",
+    "INTRO_ALERT_TEXT",
 
     -- Post-processing
     "PostFX",

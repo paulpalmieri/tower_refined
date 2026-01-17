@@ -21,10 +21,10 @@ function Enemy:new(x, y, scale, enemyType)
     local shape = ENEMY_SHAPES[self.shapeName]
     self.numParts = #shape
 
-    -- HP = 1 (core) + number of sides (parts)
-    -- Triangle: 4 HP, Square: 5 HP, Pentagon: 6 HP
-    self.hp = 1 + self.numParts
-    self.maxHp = 1 + self.numParts
+    -- HP = number of sides (parts)
+    -- Triangle: 3 HP, Square: 4 HP, Pentagon: 5 HP
+    self.hp = self.numParts
+    self.maxHp = self.numParts
 
     self.parts = {}
     for i = 1, self.numParts do
@@ -537,6 +537,7 @@ end
 
 function Enemy:die(angle, impactData)
     self.dead = true
+    Sounds.playEnemyDeath()
 
     angle = angle or lume.random(0, math.pi * 2)
 

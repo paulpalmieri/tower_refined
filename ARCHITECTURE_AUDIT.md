@@ -849,6 +849,9 @@ end
 | 4 | CollisionManager & AbilityManager creation | ✅ Complete | Foundation |
 | 5 | Entity Decoupling (events for effects) | ✅ Complete | Cleaner code |
 | 6 | Manager Integration into main.lua | ✅ Complete | ~232 lines |
+| 7 | Replace syncRogueliteAbilities | ✅ Complete | ~68 lines |
+| 8 | Entity Array Migration to EntityManager | ✅ Complete | ~37 lines |
+| 9 | Spawn System Extraction | ✅ Complete | ~110 lines |
 
 ### Line Count Progress
 
@@ -856,50 +859,32 @@ end
 |-----------|----------------|
 | Original (audit start) | 2,977 |
 | After Phase 1-5 | 2,553 |
-| After Phase 6 | **2,321** |
+| After Phase 6 | 2,321 |
+| After Phase 7 | 2,253 |
+| After Phase 8 | 2,216 |
+| After Phase 9 | **2,106** |
 | Target | ~1,800 |
 
-**Total reduction so far: 656 lines (22%)**
+**Total reduction so far: 871 lines (29%)**
 
-### Phase 6 Details (Just Completed)
+### Recent Changes (Phases 7-9)
 
-Replaced 12 inline collision loops with manager calls:
+#### Phase 7: syncRogueliteAbilities Replacement
+- Replaced 75-line inline function with single `AbilityManager:syncRogueliteAbilities()` call
+- Maintains same behavior with cleaner delegation
 
-| Collision Type | Manager Method |
-|----------------|----------------|
-| Drone projectile vs shard | `CollisionManager:processDroneProjectileVsShards()` |
-| Missile vs enemy | `CollisionManager:processMissileVsEnemies()` |
-| Shield vs enemy | `CollisionManager:processShieldVsEnemies()` |
-| Enemy attacks | `AbilityManager:processEnemyAttacks()` |
-| Enemy vs tower | `CollisionManager:processEnemyVsTower()` |
-| Composite vs tower | `CollisionManager:processCompositeVsTower()` |
-| Projectile vs enemy | `CollisionManager:processProjectileVsEnemies()` |
-| Projectile vs composite | `CollisionManager:processProjectileVsComposites()` |
-| Projectile vs shard | `CollisionManager:processProjectileVsShards()` |
-| Enemy projectile vs tower | `CollisionManager:processEnemyProjectileVsTower()` |
-| AoE warnings | `CollisionManager:processAoEWarnings()` |
-| Damage aura | `AbilityManager:processDamageAura()` |
+#### Phase 8: Entity Array Migration
+- Removed 17 global array declarations from main.lua
+- EntityManager now owns all entity collections via `syncGlobals()`
+- Reset blocks replaced with `EntityManager:reset()` calls
 
-Added helper functions:
-- `processCollisionResults()` - Handles flying parts, shards, damage numbers, gold/kills
-- `checkTowerDestroyed()` - Triggers game over on tower destruction
+#### Phase 9: Spawn System Extraction
+- Created `SpawnManager` module (`src/spawn_manager.lua`)
+- Extracted `spawnEnemy()`, `spawnCompositeEnemy()`, `spawnRandomComposite()` functions
+- Moved spawn state (gameTime, spawnAccumulator, currentSpawnRate) to SpawnManager
+- Replaced inline spawning loop with `SpawnManager:update(gameDt)`
 
 ### Remaining Work
-
-#### Phase 7: Replace syncRogueliteAbilities (Estimated: ~50 lines saved)
-- Current: 75-line function in main.lua creates/updates abilities
-- Action: Use `AbilityManager:syncRogueliteAbilities()` (already implemented)
-- Replace inline function with manager call
-
-#### Phase 8: Entity Array Migration to EntityManager (Estimated: ~100 lines saved)
-- Move 17 global arrays to EntityManager
-- Replace direct array access with manager methods
-- Consolidate cleanup loops
-
-#### Phase 9: Spawn System Extraction (Estimated: ~100 lines saved)
-- Extract enemy spawning logic to SpawnManager
-- Move wave progression logic out of main.lua
-- Consolidate spawn rate calculations
 
 #### Phase 10: UI/Draw Consolidation (Estimated: ~200 lines saved)
 - Extract HUD drawing to separate module
@@ -911,9 +896,10 @@ Added helper functions:
 ```
 src/
 ├── event_bus.lua           ✅ Implemented
-├── entity_manager.lua      ✅ Implemented (not fully integrated)
+├── entity_manager.lua      ✅ Implemented & Integrated
 ├── collision_manager.lua   ✅ Implemented & Integrated
 ├── ability_manager.lua     ✅ Implemented & Integrated
+├── spawn_manager.lua       ✅ Implemented & Integrated
 ├── systems/
 │   ├── laser_system.lua    ✅ Implemented
 │   ├── plasma_system.lua   ✅ Implemented
@@ -925,21 +911,19 @@ src/
 
 ## Conclusion
 
-The Tower Refined codebase has reached a critical inflection point. The ~~2,977-line~~ **2,321-line** main.lua is still the primary source of complexity but significant progress has been made.
+The Tower Refined codebase refactoring has made excellent progress. The **main.lua has been reduced from 2,977 to 2,106 lines** (29% reduction), with a clean manager-based architecture emerging.
 
 **Completed:**
 
-1. ✅ **Week 1:** Extract EntityManager and CollisionManager
-2. ✅ **Week 2:** Implement EventBus and decouple entity → global calls
-3. ✅ **Week 3:** Extract state machines (Laser, Plasma, GameOver)
-4. ✅ **Week 4:** Create AbilityManager, integrate collision managers
+1. ✅ **Phase 1-5:** Foundation (EventBus, EntityManager, State Machines, CollisionManager, AbilityManager, Entity Decoupling)
+2. ✅ **Phase 6:** Manager Integration (collision loops replaced with manager calls)
+3. ✅ **Phase 7:** syncRogueliteAbilities delegation to AbilityManager
+4. ✅ **Phase 8:** Entity arrays migrated to EntityManager
+5. ✅ **Phase 9:** SpawnManager extraction
 
-**Next steps:**
+**Next step:**
 
-5. **Phase 7:** Replace syncRogueliteAbilities with AbilityManager call
-6. **Phase 8:** Migrate entity arrays to EntityManager
-7. **Phase 9:** Extract SpawnManager
-8. **Phase 10:** UI/Draw consolidation
+6. **Phase 10:** UI/Draw consolidation (~200 lines potential savings)
 
 Each phase can be tested independently. The game should remain functional throughout refactoring by maintaining the same external behavior while improving internal structure.
 

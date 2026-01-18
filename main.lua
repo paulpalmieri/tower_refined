@@ -54,6 +54,7 @@ PlasmaSystem = require "src.systems.plasma_system"
 GameOverSystem = require "src.systems.gameover_system"
 CollisionManager = require "src.collision_manager"
 AbilityManager = require "src.ability_manager"
+SpawnManager = require "src.spawn_manager"
 
 -- ===================
 -- GAME STATE
@@ -110,35 +111,20 @@ function toggleFullscreen()
     updateScale()
 end
 
--- Entities
-tower = nil
-enemies = {}
-compositeEnemies = {}  -- Composite enemies with hierarchical structure
-projectiles = {}
-particles = {}
-damageNumbers = {}
-chunks = {}
-flyingParts = {}  -- Destroyed enemy sides
-dustParticles = {}  -- Footstep dust
+-- Entity arrays are managed by EntityManager and synced to globals via syncGlobals()
+-- Available globals after EntityManager:init(): tower, enemies, compositeEnemies,
+-- projectiles, particles, damageNumbers, chunks, flyingParts, dustParticles,
+-- collectibleShards, drones, droneProjectiles, silos, missiles, enemyProjectiles,
+-- aoeWarnings, damageAura
 
--- Continuous spawning system
-gameTime = 0
-local spawnAccumulator = 0
-currentSpawnRate = SPAWN_RATE
+-- Spawn system state managed by SpawnManager
+-- gameTime, spawnAccumulator, currentSpawnRate accessed via SpawnManager
 
 -- Progression
 local gold = 0
 totalGold = 100000  -- Persistent gold across runs (set high for testing)
 polygons = 0      -- Persistent polygons currency (collected from enemy shards)
 totalKills = 0
-collectibleShards = {}  -- Clickable shards dropped by enemies
-drones = {}               -- Orbiting XP collector drones
-droneProjectiles = {}     -- Drone-fired projectiles (only hit shards)
-silos = {}                -- Missile silos around turret
-missiles = {}             -- Homing missiles in flight
-enemyProjectiles = {}     -- Enemy-fired projectiles (square bolts, mini-hexes)
-aoeWarnings = {}          -- Pentagon telegraphed danger zones
-damageAura = nil          -- Damage aura entity (from roguelite upgrade)
 
 -- Passive stats (multipliers, modified by skill tree)
 local stats = {
@@ -552,99 +538,7 @@ local function activatePlasma()
     PlasmaSystem:activate()
 end
 
--- ===================
--- SPAWN SYSTEM (Continuous)
--- ===================
-local function spawnEnemy()
-    -- Spawn from just outside visible area (edge spawning)
-    local left, top, right, bottom = Camera:getBounds()
-    local margin = 100  -- Spawn margin outside visible area
-
-    -- Pick random edge (0=top, 1=right, 2=bottom, 3=left)
-    local edge = math.random(0, 3)
-    local x, y
-
-    if edge == 0 then  -- Top
-        x = lume.random(left - margin, right + margin)
-        y = top - margin
-    elseif edge == 1 then  -- Right
-        x = right + margin
-        y = lume.random(top - margin, bottom + margin)
-    elseif edge == 2 then  -- Bottom
-        x = lume.random(left - margin, right + margin)
-        y = bottom + margin
-    else  -- Left
-        x = left - margin
-        y = lume.random(top - margin, bottom + margin)
-    end
-
-    -- Determine enemy type - all types available from start
-    local enemyType = "basic"
-    local roll = lume.random()
-
-    -- Fixed spawn weights: 40% basic, 25% fast, 18% tank, 12% brute, 5% elite
-    if roll < 0.05 then
-        enemyType = "elite"
-    elseif roll < 0.17 then
-        enemyType = "brute"
-    elseif roll < 0.35 then
-        enemyType = "tank"
-    elseif roll < 0.60 then
-        enemyType = "fast"
-    end
-
-    local enemy = Enemy(x, y, 1.0, enemyType)
-    table.insert(enemies, enemy)
-end
-
-local function spawnCompositeEnemy(templateName)
-    local template = COMPOSITE_TEMPLATES[templateName]
-    if not template then return end
-
-    -- Spawn from just outside visible area (edge spawning)
-    local left, top, right, bottom = Camera:getBounds()
-    local margin = 100
-
-    local edge = math.random(0, 3)
-    local x, y
-
-    if edge == 0 then  -- Top
-        x = lume.random(left - margin, right + margin)
-        y = top - margin
-    elseif edge == 1 then  -- Right
-        x = right + margin
-        y = lume.random(top - margin, bottom + margin)
-    elseif edge == 2 then  -- Bottom
-        x = lume.random(left - margin, right + margin)
-        y = bottom + margin
-    else  -- Left
-        x = left - margin
-        y = lume.random(top - margin, bottom + margin)
-    end
-
-    local composite = CompositeEnemy(x, y, template, 0)
-    table.insert(compositeEnemies, composite)
-end
-
--- Spawn a random composite enemy based on game time
-local function spawnRandomComposite()
-    -- Available templates weighted by difficulty
-    local templates = {"half_shielded_square", "shielded_square"}
-
-    -- Add harder templates as game progresses
-    if gameTime > 45 then
-        table.insert(templates, "shielded_pentagon")
-    end
-    if gameTime > 90 then
-        table.insert(templates, "half_shielded_hexagon")
-    end
-    if gameTime > 150 then
-        table.insert(templates, "shielded_hexagon")
-    end
-
-    local templateName = templates[math.random(#templates)]
-    spawnCompositeEnemy(templateName)
-end
+-- Spawn system now managed by SpawnManager module
 
 -- ===================
 -- PROJECTILE SYSTEM
@@ -756,8 +650,9 @@ local function drawUI()
 
     -- Time and enemy count (neon green)
     love.graphics.setColor(NEON_PRIMARY[1], NEON_PRIMARY[2], NEON_PRIMARY[3], 0.9)
-    local minutes = math.floor(gameTime / 60)
-    local seconds = math.floor(gameTime % 60)
+    local currentGameTime = SpawnManager:getGameTime()
+    local minutes = math.floor(currentGameTime / 60)
+    local seconds = math.floor(currentGameTime % 60)
     love.graphics.print(string.format("Time: %d:%02d", minutes, seconds), 10, 10)
     love.graphics.print("Enemies: " .. (#enemies + #compositeEnemies), 10, 30)
 
@@ -1069,7 +964,7 @@ local function triggerGameOverReveal()
 end
 
 local function drawGameOver()
-    GameOverSystem:draw(gameTime, totalKills, gold, totalGold, polygons)
+    GameOverSystem:draw(SpawnManager:getGameTime(), totalKills, gold, totalGold, polygons)
 end
 
 -- ===================
@@ -1137,6 +1032,12 @@ end
 function startNewRun()
     gameState = "playing"
 
+    -- Reset game state first (clear lights from shards, then reset all entity arrays)
+    clearCollectibleShards()
+    EntityManager:reset()
+    gold = 0
+    totalKills = 0
+
     -- Reset roguelite progression for new run
     Roguelite:reset()
     LevelUpUI:init()
@@ -1156,33 +1057,11 @@ function startNewRun()
     tower.fireRate = TOWER_FIRE_RATE / stats.fireRate
     tower.projectileSpeed = PROJECTILE_SPEED * stats.projectileSpeed
 
-    -- Reset game state
-    enemies = {}
-    compositeEnemies = {}
-    projectiles = {}
-    particles = {}
-    damageNumbers = {}
-    chunks = {}
-    flyingParts = {}
-    dustParticles = {}
-    clearCollectibleShards()
-    drones = {}
-    droneProjectiles = {}
-    enemyProjectiles = {}
-    aoeWarnings = {}
-    damageAura = nil
-    gold = 0
-    totalKills = 0
-
     -- Reset systems
     GameOverSystem:reset()
     LaserSystem:reset()
     PlasmaSystem:reset()
-
-    -- Reset spawning system
-    gameTime = 0
-    spawnAccumulator = 0
-    currentSpawnRate = SPAWN_RATE
+    SpawnManager:reset()
 
     -- TEST: Spawn one of each composite template for testing
     local testTemplates = {}
@@ -1192,11 +1071,11 @@ function startNewRun()
     table.sort(testTemplates)  -- Consistent order
     local spawnRadius = 300
     for i, templateName in ipairs(testTemplates) do
+        SpawnManager:spawnCompositeEnemy(templateName)
+        -- Reposition to known locations for testing
         local angle = (i - 1) * (2 * math.pi / #testTemplates)
-        local x = CENTER_X + math.cos(angle) * spawnRadius
-        local y = CENTER_Y + math.sin(angle) * spawnRadius
-        local composite = CompositeEnemy(x, y, COMPOSITE_TEMPLATES[templateName], 0)
-        table.insert(compositeEnemies, composite)
+        compositeEnemies[#compositeEnemies].worldX = CENTER_X + math.cos(angle) * spawnRadius
+        compositeEnemies[#compositeEnemies].worldY = CENTER_Y + math.sin(angle) * spawnRadius
     end
 
     -- Reset feedback, debris, and lighting state
@@ -1258,22 +1137,8 @@ function triggerRebootAnimation()
     Sounds.stopLaser()
 
     -- Clear all game entities for a clean arena during animation
-    enemies = {}
-    compositeEnemies = {}
-    projectiles = {}
-    particles = {}
-    damageNumbers = {}
-    chunks = {}
-    flyingParts = {}
-    dustParticles = {}
     clearCollectibleShards()
-    drones = {}
-    droneProjectiles = {}
-    enemyProjectiles = {}
-    aoeWarnings = {}
-    damageAura = nil
-    silos = {}
-    missiles = {}
+    EntityManager:reset()
 
     -- Reset lighting
     Lighting:reset()
@@ -1286,6 +1151,7 @@ function triggerRebootAnimation()
         tower.x = CENTER_X
         tower.y = CENTER_Y
     end
+    EntityManager:setTower(tower)
     tower.lightId = Lighting:addTowerGlow(tower)
 
     -- Start the reboot animation
@@ -1295,80 +1161,12 @@ end
 
 -- Sync roguelite abilities mid-run (called when upgrades are selected)
 local function syncRogueliteAbilities()
-    local rs = Roguelite.runtimeStats
-
-    -- Update tower fire rate with roguelite multiplier
-    tower.fireRate = TOWER_FIRE_RATE / (stats.fireRate * rs.fireRateMult)
-    tower.projectileSpeed = PROJECTILE_SPEED * stats.projectileSpeed * rs.projectileSpeedMult
-
-    -- Sync shield
-    if rs.shieldCharges > 0 then
-        if not tower.shield then
-            tower.shield = Shield(tower)
-        end
-        tower.shield:setCharges(rs.shieldCharges, rs.shieldCharges)
-        tower.shield:setRadius(stats.shieldRadius)
-    end
-
-    -- Sync drones
-    local currentDroneCount = #drones
-    local targetDroneCount = stats.droneCount + rs.droneCount
-    if targetDroneCount > currentDroneCount then
-        -- Add new drones
-        for i = currentDroneCount + 1, targetDroneCount do
-            local drone = Drone(tower, i - 1, targetDroneCount)
-            drone.fireRate = DRONE_BASE_FIRE_RATE / stats.droneFireRate
-
-            -- Add drone glow light
-            drone.lightId = Lighting:addLight({
-                x = drone.x,
-                y = drone.y,
-                radius = DRONE_LIGHT_RADIUS,
-                intensity = DRONE_LIGHT_INTENSITY,
-                color = DRONE_COLOR,
-                owner = drone,
-                pulse = 2,
-                pulseAmount = 0.15,
-            })
-
-            table.insert(drones, drone)
-        end
-        -- Reposition existing drones for even spacing
-        for i, drone in ipairs(drones) do
-            drone.orbitIndex = i - 1
-            local spacing = (2 * math.pi) / targetDroneCount
-            drone.orbitAngle = (i - 1) * spacing
-            drone:updateOrbitPosition()
-        end
-    end
-
-    -- Sync silos
-    local currentSiloCount = #silos
-    local targetSiloCount = stats.siloCount + rs.siloCount
-    if targetSiloCount > currentSiloCount then
-        -- Add new silos
-        for i = currentSiloCount + 1, targetSiloCount do
-            local silo = Silo(tower, i - 1, targetSiloCount)
-            silo.fireRate = SILO_BASE_FIRE_RATE / stats.siloFireRate
-            silo.doubleShot = stats.siloDoubleShot
-            table.insert(silos, silo)
-        end
-        -- Reposition existing silos for even spacing
-        for i, silo in ipairs(silos) do
-            silo.orbitIndex = i - 1
-            local spacing = (2 * math.pi) / targetSiloCount
-            silo.orbitAngle = (i - 1) * spacing
-            silo:updateOrbitPosition()
-        end
-    end
-
-    -- Sync damage aura
-    if rs.auraEnabled and not damageAura then
-        damageAura = DamageAura(tower)
-    end
-    if damageAura then
-        damageAura:setStats(rs.auraDamageMult, rs.auraRadiusMult)
-    end
+    local syncResults = AbilityManager:syncRogueliteAbilities(
+        tower, stats, drones, silos, damageAura,
+        Roguelite, Lighting, Drone, Silo, Shield, DamageAura
+    )
+    -- Update damageAura reference if newly created
+    damageAura = syncResults.damageAura
 end
 
 -- ===================
@@ -1410,6 +1208,7 @@ function love.load()
     GameOverSystem:init()
     CollisionManager:init()
     AbilityManager:init()
+    SpawnManager:init()
 
     -- Register event listeners for decoupled entity communication
     registerEventListeners()
@@ -1546,22 +1345,7 @@ function love.update(dt)
     end
 
     -- Continuous spawning (uses gameDt to freeze during hit-stop)
-    gameTime = gameTime + gameDt
-    currentSpawnRate = SPAWN_RATE + (gameTime * SPAWN_RATE_INCREASE)
-
-    local totalEnemyCount = #enemies + #compositeEnemies
-    spawnAccumulator = spawnAccumulator + gameDt * currentSpawnRate
-    while spawnAccumulator >= 1 and totalEnemyCount < MAX_ENEMIES do
-        spawnAccumulator = spawnAccumulator - 1
-
-        -- 15% chance to spawn composite (after 10 seconds), otherwise regular enemy
-        if gameTime > 10 and lume.random() < 0.15 then
-            spawnRandomComposite()
-        else
-            spawnEnemy()
-        end
-        totalEnemyCount = totalEnemyCount + 1
-    end
+    SpawnManager:update(gameDt)
 
     -- Find target for tower (only used in auto-fire mode)
     local target = nil

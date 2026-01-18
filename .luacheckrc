@@ -533,6 +533,7 @@ globals = {
     "GameOverSystem",
     "CollisionManager",
     "AbilityManager",
+    "SpawnManager",
 
     -- Dash ability
     "DASH_DISTANCE",

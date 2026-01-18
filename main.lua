@@ -2,6 +2,22 @@
 -- Tower Idle Roguelite
 
 -- ===================
+-- PROTOTYPE MODE CHECK
+-- ===================
+-- Run with: love . --prototype
+-- Or set environment variable: PROTOTYPE=1 love .
+for _, arg in ipairs(arg or {}) do
+    if arg == "--prototype" or arg == "-p" then
+        require("main_prototype")
+        return
+    end
+end
+if os.getenv("PROTOTYPE") then
+    require("main_prototype")
+    return
+end
+
+-- ===================
 -- LIBRARIES
 -- ===================
 Object = require "lib.classic"

@@ -181,10 +181,8 @@ TOWER_LIGHT_PULSE_AMOUNT = 0.2
 -- KNOCKBACK (Dynamic)
 -- ===================
 KNOCKBACK_BASE_FORCE = 800        -- Baseline knockback at 1x velocity, 1x damage
-KNOCKBACK_VELOCITY_SCALE = 1.0    -- Linear velocity scaling (velocity-focused)
-KNOCKBACK_DAMAGE_SCALE = 0.3      -- Reduced damage scaling (velocity-focused)
+KNOCKBACK_DAMAGE_SCALE = 0.3      -- Damage scaling for knockback
 KNOCKBACK_MAX_MULTIPLIER = 3.0    -- Cap to prevent absurd knockback
-KNOCKBACK_DURATION = 0.5
 
 -- ===================
 -- TORQUE / PHYSICS ROTATION
@@ -204,7 +202,6 @@ SPAWN_DISTANCE = 800  -- Pushed further for larger 1200x900 viewport
 -- ===================
 -- HIT FEEDBACK
 -- ===================
-BLOB_FLASH_DURATION = 0.05
 BLOB_PIXEL_SIZE = 2
 
 -- ===================
@@ -222,10 +219,6 @@ GAP_DAMAGE_BONUS = 1.5             -- 50% bonus when bullet passes through gap
 PART_FLASH_DURATION = 0.08         -- Duration of side flash on hit
 CORE_FLASH_DURATION = 0.12         -- Duration of core flash on gap hit
 HIT_FLASH_DURATION = 0.1           -- Full-body flash on any hit
-
--- Impact stagger (when parts break off)
-IMPACT_SPIN_INCREASE_MIN = 1.5     -- Min rotation speed added per part lost (rad/s)
-IMPACT_SPIN_INCREASE_MAX = 3.0     -- Max rotation speed added per part lost (rad/s)
 IMPACT_DISPLACEMENT = 8            -- Random displacement distance when part lost
 
 -- ===================

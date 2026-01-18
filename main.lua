@@ -13,6 +13,30 @@ lume = require "lib.lume"
 require "src.config"
 
 -- ===================
+-- TWEAKS (hot-reloadable overrides)
+-- ===================
+local function loadTweaks()
+    -- Clear cached version so we get fresh file
+    package.loaded["tweaks"] = nil
+    local ok, tweaks = pcall(require, "tweaks")
+    if ok and type(tweaks) == "table" then
+        local count = 0
+        for key, value in pairs(tweaks) do
+            _G[key] = value
+            count = count + 1
+        end
+        if count > 0 then
+            print("[Tweaks] Loaded " .. count .. " overrides")
+        end
+        return true
+    elseif not ok then
+        print("[Tweaks] Error loading tweaks.lua: " .. tostring(tweaks))
+        return false
+    end
+    return true
+end
+
+-- ===================
 -- GAME MODULES
 -- ===================
 Particle = require "src.entities.particle"
@@ -33,7 +57,7 @@ Sounds = require "src.audio"
 Feedback = require "src.feedback"
 DebrisManager = require "src.debris_manager"
 Lighting = require "src.lighting"
-DebugConsole = require "src.debug_console"
+-- DebugConsole removed - use tweaks.lua for value tuning
 SkillTree = require "src.skilltree"
 PostFX = require "src.postfx"
 Intro = require "src.intro"
@@ -883,10 +907,12 @@ function love.load()
     gameFont:setFilter("nearest", "nearest")  -- Crisp pixel rendering
     love.graphics.setFont(gameFont)
 
+    -- Load hot-reloadable tweaks (press F5 to reload)
+    loadTweaks()
+
     Sounds.init()
     DebrisManager:init()
     Lighting:init()
-    DebugConsole:init()
     SkillTree:init()
     SettingsMenu:init()
     PostFX:init()
@@ -925,8 +951,6 @@ function love.resize(w, h)
 end
 
 function love.update(dt)
-    -- Update debug console (always, even when paused)
-    DebugConsole:update(dt)
 
     -- Update post-processing effects (always, for animated shaders)
     PostFX:update(dt)
@@ -1356,7 +1380,6 @@ function love.draw()
         end
 
         drawScopeCursor()
-        DebugConsole:draw()
         love.graphics.pop()
         PostFX:endCRT()
         return
@@ -1367,7 +1390,6 @@ function love.draw()
         SkillTree:draw()
         SkillTree:drawPlayTransitionOverlay()
         drawScopeCursor()
-        DebugConsole:draw()
         love.graphics.pop()
         PostFX:endCRT()
         return
@@ -1377,7 +1399,6 @@ function love.draw()
     if gameState == "settings" then
         SettingsMenu:draw()
         drawScopeCursor()
-        DebugConsole:draw()
         love.graphics.pop()
         PostFX:endCRT()
         return
@@ -1572,9 +1593,6 @@ function love.draw()
         love.graphics.print(string.format("Speed: %.1fx", GAME_SPEEDS[gameSpeedIndex]), 10, y)
     end
 
-    -- Debug console
-    DebugConsole:draw()
-
     love.graphics.pop()  -- End scale transform
 
     -- Apply CRT effect to everything (scanlines, curvature)
@@ -1582,29 +1600,10 @@ function love.draw()
 end
 
 function love.keypressed(key)
-    -- Debug console toggle (backtick)
-    if key == "`" then
-        DebugConsole:toggle()
+    -- Hot-reload tweaks (F5)
+    if key == "f5" then
+        loadTweaks()
         return
-    end
-
-    -- Handle console input when visible (consume all keys)
-    if DebugConsole:isVisible() then
-        -- First check if focused text input handles the key
-        if DebugConsole:handleKeypress(key) then
-            return
-        end
-        -- Otherwise handle command line input
-        if key == "escape" then
-            DebugConsole:close()
-        elseif key == "return" then
-            DebugConsole:executeInput()
-        elseif key == "backspace" then
-            DebugConsole:backspace()
-        elseif key == "tab" then
-            DebugConsole:autocomplete()
-        end
-        return -- Consume all keys when console visible
     end
 
     -- Performance overlay toggle (U)
@@ -1723,27 +1722,13 @@ function love.keypressed(key)
 end
 
 function love.textinput(text)
-    -- Filter out backtick (used to toggle console)
-    if text == "`" then return end
-
-    if DebugConsole:isVisible() then
-        -- First check if focused text input handles the input
-        if DebugConsole:handleTextInput(text) then
-            return
-        end
-        -- Otherwise pass to command line input
-        DebugConsole:appendText(text)
-    end
+    -- Reserved for future use
 end
 
 function love.mousepressed(x, y, button)
     -- Convert to game coordinates
     local gx, gy = screenToGame(x, y)
 
-    -- Debug console mouse handling (consume clicks when visible)
-    if DebugConsole:mousepressed(gx, gy, button) then
-        return
-    end
 
     -- Level-up UI mouse handling
     if Roguelite.levelUpPending then
@@ -1776,7 +1761,6 @@ function love.mousereleased(x, y, button)
         return
     end
 
-    DebugConsole:mousereleased(gx, gy, button)
 end
 
 function love.mousemoved(x, y)
@@ -1794,14 +1778,9 @@ function love.mousemoved(x, y)
         return
     end
 
-    DebugConsole:mousemoved(gx, gy)
 end
 
 function love.wheelmoved(x, y)
-    if DebugConsole:wheelmoved(x, y) then
-        return
-    end
-
     -- Skill tree zoom handling
     if gameState == "skilltree" then
         SkillTree:wheelmoved(x, y)

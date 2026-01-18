@@ -528,6 +528,7 @@ globals = {
     -- New systems (architecture refactoring)
     "EventBus",
     "EntityManager",
+    "HUD",
     "LaserSystem",
     "PlasmaSystem",
     "GameOverSystem",

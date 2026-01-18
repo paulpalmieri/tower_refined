@@ -837,7 +837,7 @@ end
 
 ## 7. Refactoring Progress
 
-**Last Updated:** January 17, 2026
+**Last Updated:** January 18, 2026
 
 ### Completed Phases
 
@@ -867,68 +867,246 @@ end
 
 **Total reduction so far: 871 lines (29%)**
 
-### Recent Changes (Phases 7-9)
-
-#### Phase 7: syncRogueliteAbilities Replacement
-- Replaced 75-line inline function with single `AbilityManager:syncRogueliteAbilities()` call
-- Maintains same behavior with cleaner delegation
-
-#### Phase 8: Entity Array Migration
-- Removed 17 global array declarations from main.lua
-- EntityManager now owns all entity collections via `syncGlobals()`
-- Reset blocks replaced with `EntityManager:reset()` calls
-
-#### Phase 9: Spawn System Extraction
-- Created `SpawnManager` module (`src/spawn_manager.lua`)
-- Extracted `spawnEnemy()`, `spawnCompositeEnemy()`, `spawnRandomComposite()` functions
-- Moved spawn state (gameTime, spawnAccumulator, currentSpawnRate) to SpawnManager
-- Replaced inline spawning loop with `SpawnManager:update(gameDt)`
-
-### Remaining Work
-
-#### Phase 10: UI/Draw Consolidation (Estimated: ~200 lines saved)
-- Extract HUD drawing to separate module
-- Consolidate draw state handling
-- Remove draw code from main.lua
-
 ### Current Architecture
 
 ```
 src/
-├── event_bus.lua           ✅ Implemented
-├── entity_manager.lua      ✅ Implemented & Integrated
-├── collision_manager.lua   ✅ Implemented & Integrated
-├── ability_manager.lua     ✅ Implemented & Integrated
-├── spawn_manager.lua       ✅ Implemented & Integrated
+├── event_bus.lua           ✅ Implemented (89 lines)
+├── entity_manager.lua      ✅ Implemented & Integrated (189 lines)
+├── collision_manager.lua   ✅ Implemented & Integrated (566 lines)
+├── ability_manager.lua     ✅ Implemented & Integrated (217 lines)
+├── spawn_manager.lua       ✅ Implemented & Integrated (140 lines)
 ├── systems/
-│   ├── laser_system.lua    ✅ Implemented
-│   ├── plasma_system.lua   ✅ Implemented
-│   └── gameover_system.lua ✅ Implemented
+│   ├── laser_system.lua    ✅ Implemented (328 lines)
+│   ├── plasma_system.lua   ✅ Implemented (189 lines)
+│   └── gameover_system.lua ✅ Implemented (193 lines)
 └── entities/               ✅ Decoupled via events
 ```
 
 ---
 
-## Conclusion
+## 8. January 18, 2026 Compliance Audit
 
-The Tower Refined codebase refactoring has made excellent progress. The **main.lua has been reduced from 2,977 to 2,106 lines** (29% reduction), with a clean manager-based architecture emerging.
+**Auditor:** Senior Software Architect Review
 
-**Completed:**
+### Summary
 
-1. ✅ **Phase 1-5:** Foundation (EventBus, EntityManager, State Machines, CollisionManager, AbilityManager, Entity Decoupling)
-2. ✅ **Phase 6:** Manager Integration (collision loops replaced with manager calls)
-3. ✅ **Phase 7:** syncRogueliteAbilities delegation to AbilityManager
-4. ✅ **Phase 8:** Entity arrays migrated to EntityManager
-5. ✅ **Phase 9:** SpawnManager extraction
+The codebase has made **significant progress** toward the original audit goals. Phases 1-9 are complete, reducing main.lua by 29%. However, several issues remain that should be addressed before considering the refactoring "complete."
 
-**Next step:**
+### Verified Compliance ✅
 
-6. **Phase 10:** UI/Draw consolidation (~200 lines potential savings)
+#### 1.1 God Object Reduction
+- **Original:** 2,977 lines
+- **Current:** 2,106 lines
+- **Progress:** 29% reduction (871 lines removed)
+- **Assessment:** Good progress, but target was ~1,500-1,800 lines
 
-Each phase can be tested independently. The game should remain functional throughout refactoring by maintaining the same external behavior while improving internal structure.
+#### 1.2 Collision Duplication Resolved
+- CollisionManager now handles all collision types in a unified way
+- 10 distinct collision handler methods in `collision_manager.lua`
+- **Assessment:** ✅ Complete
 
-**Expected outcome:** main.lua reduced to ~1,500-1,800 lines, subsystems testable in isolation, adding new features no longer requires understanding entire codebase.
+#### 1.3 Entity Decoupling via Events
+- `Enemy.lua` uses `EventBus:emit()` for "enemy_hit", "enemy_death"
+- `Turret.lua` uses `EventBus:emit()` for "projectile_fire", "tower_damage", "dash_*" events
+- Entities use `EntityManager:getTower()` instead of global `tower`
+- **Assessment:** ✅ Complete
+
+#### 2.1 State Machines Extracted
+- LaserSystem: 5 states (ready/deploying/charging/firing/retracting) - 328 lines
+- PlasmaSystem: 3 states (ready/charging/cooldown) - 189 lines
+- GameOverSystem: 5 phases (none/fade_in/title_hold/reveal/complete) - 193 lines
+- **Assessment:** ✅ Complete
+
+### Partial Compliance ⚠️
+
+#### 2.2 Flag-Based Attack Anti-Pattern (Still Present)
+**Location:** `src/entities/enemy.lua:59-63`, processed in `ability_manager.lua:107-155`
+
+The flag-based pattern still exists:
+```lua
+self.shouldFireProjectile = false
+self.shouldCreateTelegraph = false
+self.shouldSpawnMiniHex = false
+self.shouldExplode = false
+```
+
+**Assessment:** ⚠️ Centralized in AbilityManager but not fully event-based
+
+#### 2.4 Event System Consistency
+**Issue:** Managers still directly call global singletons instead of emitting events
+
+CollisionManager direct calls:
+- `DebrisManager:spawnMissileExplosion()` (line 235)
+- `DebrisManager:spawnSquareImpact()` (line 349)
+- `DebrisManager:spawnShieldKillBurst()` (line 381)
+- `DebrisManager:spawnKamikazeExplosion()` (line 439)
+- `DebrisManager:spawnPentagonTrigger()` (line 525)
+- `Feedback:trigger()` (lines 191, 270, 351, 384, 439, 526)
+
+AbilityManager direct calls:
+- `DebrisManager:spawnSquareMuzzleFlash()` (line 124)
+- `DebrisManager:spawnMiniHexBurst()` (line 148)
+
+**Assessment:** ⚠️ Managers coupled to global effect systems
+
+### Not Started 🔴
+
+#### 3.4 Upgrade Objects Pattern
+The if-else chain in `Roguelite:applyUpgrade()` (lines 171-213) still exists with 12 conditions.
+
+#### 4.1 Config Splitting
+`config.lua` remains monolithic at 580 lines.
+
+#### 4.3 Global Namespace Pollution
+100+ globals still defined in config.lua (.luacheckrc has 555 globals listed).
 
 ---
 
-*End of Architecture Audit Report*
+## 9. Unused Code Analysis
+
+### EntityManager Unused Methods
+
+The following methods are defined but never called:
+- `EntityManager:find()` - Unused
+- `EntityManager:findAll()` - Unused
+- `EntityManager:forEach()` - Unused
+- `EntityManager:getCount()` - Unused
+- `EntityManager:removeDeadFrom()` - Unused
+- `EntityManager:removeDeadFromAll()` - Unused
+- `EntityManager:clear()` - Unused
+- `EntityManager:getAlive()` - Unused
+
+**Recommendation:** Keep for future use, or remove if YAGNI principle is preferred.
+
+### EventBus Unused Methods
+
+The following methods are defined but never called:
+- `EventBus:defer()` - Unused
+- `EventBus:processDeferredEvents()` - Unused
+- `EventBus:clearEvent()` - Unused
+- `EventBus:getListenerCount()` - Unused
+
+**Recommendation:** Keep for debugging/future use.
+
+### Codebase Line Count Distribution
+
+| File | Lines | % of Total |
+|------|-------|------------|
+| main.lua | 2,106 | 16.6% |
+| debug_console.lua | 1,013 | 8.0% |
+| composite_enemy.lua | 770 | 6.1% |
+| enemy.lua | 725 | 5.7% |
+| intro.lua | 596 | 4.7% |
+| config.lua | 580 | 4.6% |
+| collision_manager.lua | 566 | 4.5% |
+| turret.lua | 500 | 3.9% |
+| debris_manager.lua | 491 | 3.9% |
+| Other files | 5,330 | 42.0% |
+| **Total** | **12,677** | 100% |
+
+**Note:** debug_console.lua at 1,013 lines is 8% of the codebase - a significant development tool that could be stripped for production builds.
+
+---
+
+## 10. Recommended Next Steps
+
+### Phase 10: UI/HUD Extraction (Priority: Medium)
+
+**Goal:** Extract drawUI() (300+ lines) to separate module
+
+Create `src/hud.lua`:
+```lua
+local HUD = {}
+
+function HUD:draw(tower, stats, roguelite, gameState)
+    -- Extract from main.lua:646-948
+end
+
+return HUD
+```
+
+**Estimated savings:** ~250 lines from main.lua
+
+### Phase 11: Manager Event Consistency (Priority: High)
+
+**Goal:** Replace direct Feedback/DebrisManager calls with events in managers
+
+Example refactor for CollisionManager:
+```lua
+-- Before:
+Feedback:trigger("missile_impact")
+DebrisManager:spawnMissileExplosion(missile.x, missile.y, missile.angle)
+
+-- After:
+EventBus:emit("missile_impact", {
+    x = missile.x,
+    y = missile.y,
+    angle = missile.angle,
+})
+-- Listener in main.lua handles the effect spawning
+```
+
+**Impact:** Enables testing managers in isolation, consistent architecture
+
+### Phase 12: Flag-Based Attack Refactor (Priority: Low)
+
+**Goal:** Replace enemy attack flags with event-based system
+
+```lua
+-- Enemy emits:
+EventBus:emit("enemy_attack", {
+    type = "projectile",
+    x = self.x,
+    y = self.y,
+    angle = math.atan2(tower.y - self.y, tower.x - self.x),
+})
+
+-- AbilityManager listens and creates projectiles
+```
+
+### Phase 13: Dead Code Removal (Priority: Low)
+
+**Options:**
+1. Remove unused EntityManager/EventBus methods (~40 lines)
+2. Create production build script that strips debug_console.lua
+3. Split config.lua into logical sections (optional)
+
+---
+
+## 11. Architecture Assessment Summary
+
+### Strengths
+1. **Clear manager separation** - Collision, Ability, Spawn, Entity managers well-defined
+2. **Event system in place** - Entities properly decoupled for effects
+3. **State machines extracted** - Laser, Plasma, GameOver systems self-contained
+4. **29% main.lua reduction** - Meaningful progress toward maintainability
+
+### Weaknesses
+1. **Inconsistent event usage** - Managers still directly call globals
+2. **main.lua still too large** - 2,106 lines (target: ~1,500)
+3. **Flag-based attack pattern** - Enemy attack system not fully event-driven
+4. **Global namespace pollution** - 555 globals in .luacheckrc
+
+### Overall Grade: **B**
+
+The refactoring has achieved its primary goals of introducing managers and reducing main.lua complexity. The architecture is now maintainable and extensible. Remaining work is polish rather than structural changes.
+
+---
+
+## 12. Conclusion
+
+The Tower Refined codebase refactoring has made **excellent progress**. The architecture is now:
+
+- ✅ **Modular:** 8 manager/system modules extracted
+- ✅ **Event-driven:** Entities communicate via EventBus
+- ✅ **Testable:** Managers have clear interfaces
+- ⚠️ **Partially complete:** UI extraction and event consistency remain
+
+**Recommendation:** The codebase is now in a **good state for feature development**. Phases 10-13 are optional polish that can be done incrementally alongside new features, rather than blocking further development.
+
+**Total effort invested:** ~1,900 lines of new manager code, ~870 lines removed from main.lua
+
+---
+
+*End of Architecture Audit Report - Updated January 18, 2026*

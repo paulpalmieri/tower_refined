@@ -49,19 +49,21 @@ settings  -> (press ESC)         -> (previous state)
 
 ### Entity Ownership
 
-| Entity | Storage | Managed In |
+| Entity | Storage | Managed By |
 |--------|---------|------------|
-| Tower | `tower` (single) | main.lua |
-| Enemies | `enemies[]` | main.lua |
-| Composite Enemies | `compositeEnemies[]` | main.lua |
-| Projectiles | `projectiles[]` | main.lua |
-| Drone Projectiles | `droneProjectiles[]` | main.lua |
-| Particles | `particles[]` | main.lua |
-| Chunks | `chunks[]` | main.lua |
-| Collectible Shards | `collectibleShards[]` | main.lua |
-| Drones | `drones[]` | main.lua |
-| Silos | `silos[]` | main.lua |
-| Missiles | `missiles[]` | main.lua |
+| Tower | `tower` (single) | EntityManager |
+| Enemies | `enemies[]` | EntityManager |
+| Composite Enemies | `compositeEnemies[]` | EntityManager |
+| Projectiles | `projectiles[]` | EntityManager |
+| Drone Projectiles | `droneProjectiles[]` | EntityManager |
+| Particles | `particles[]` | EntityManager |
+| Chunks | `chunks[]` | EntityManager |
+| Collectible Shards | `collectibleShards[]` | EntityManager |
+| Drones | `drones[]` | EntityManager |
+| Silos | `silos[]` | EntityManager |
+| Missiles | `missiles[]` | EntityManager |
+
+**Note:** EntityManager syncs collections to globals for backwards compatibility.
 
 ---
 
@@ -69,7 +71,7 @@ settings  -> (press ESC)         -> (previous state)
 
 | File | Purpose |
 |------|---------|
-| `main.lua` | Entry point, game loop, UI |
+| `main.lua` | Entry point, game loop, UI (2,106 lines) |
 | `src/config.lua` | All gameplay constants |
 | `src/audio.lua` | Sound effects and music system |
 | `src/camera.lua` | Camera positioning and transforms |
@@ -81,6 +83,24 @@ settings  -> (press ESC)         -> (previous state)
 | `src/lighting.lua` | Simple additive glow lights |
 | `src/postfx.lua` | Post-processing effects (bloom, CRT, glitch) |
 | `src/settings_menu.lua` | Settings menu UI |
+
+### Managers (Architecture Refactor)
+
+| File | Purpose |
+|------|---------|
+| `src/event_bus.lua` | Pub/sub event system for entity decoupling |
+| `src/entity_manager.lua` | Centralized entity array management |
+| `src/collision_manager.lua` | All collision detection and handling |
+| `src/ability_manager.lua` | Roguelite ability syncing and enemy attacks |
+| `src/spawn_manager.lua` | Enemy wave spawning logic |
+
+### Systems
+
+| File | Purpose |
+|------|---------|
+| `src/systems/laser_system.lua` | Laser beam state machine |
+| `src/systems/plasma_system.lua` | Plasma missile state machine |
+| `src/systems/gameover_system.lua` | Game over animation state machine |
 
 ### Entities
 
